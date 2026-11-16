@@ -29,6 +29,7 @@ type securePeer struct {
 func TestSecureRaftThreeNodesAndDeniedUnapprovedVoter(t *testing.T) {
 	root := t.TempDir()
 	nodes := make([]*securePeer, 3)
+	addrs := freeAddrs(t, len(nodes))
 	for i := range nodes {
 		dir := filepath.Join(root, fmt.Sprintf("n%d", i))
 		ident := identity.NewStore(filepath.Join(dir, "identity"))
@@ -40,7 +41,7 @@ func TestSecureRaftThreeNodesAndDeniedUnapprovedVoter(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		nodes[i] = &securePeer{ident: ident, public: pub, trust: trust, testPeer: &testPeer{node: pub.NodeID, addr: freeAddr(t), dir: dir}}
+		nodes[i] = &securePeer{ident: ident, public: pub, trust: trust, testPeer: &testPeer{node: pub.NodeID, addr: addrs[i], dir: dir}}
 	}
 	for i := range nodes {
 		for j := range nodes {
