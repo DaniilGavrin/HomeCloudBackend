@@ -1,0 +1,40 @@
+# Runtime state is never source code: databases, uploaded media and
+# cluster identity material must not enter a public repository.
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Runtime configuration (may contain SMTP and database passwords).
+config/config.yaml*
+wsconfig/config.yaml*
+.env
+.env.*
+!.env.example
+!.env.sample
+*.local
+
+# Private keys and signing material.
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_ed25519
+
+# Local editor metadata, temporary files and build artifacts.
+.idea/
+*.bak
+*.bak-*
+*.backup
+*.backup-*
+*~
+*.log
+*.exe
+*.out
+*.test
+dist/

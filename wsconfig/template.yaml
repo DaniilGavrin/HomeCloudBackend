@@ -1,0 +1,352 @@
+# ============================================================
+# HomeCloudBackend — Configuration Schema v1 (проект)
+# ============================================================
+# Это конфигурация ЦЕНТРАЛЬНОГО WebSocket-backend, а не перечень
+# всех комнат, устройств, пользователей и таблиц базы данных.
+# Динамические объекты будут храниться в БД.
+# Пути ./data/... в будущем разрешаем относительно фиксированного
+# корня приложения, а НЕ случайной рабочей директории.
+# Параметры с enabled: false не требуют заполненных реквизитов.
+# Реквизиты БД и интеграций задаются в YAML; WebSocket не использует токены и ключи.
+# Не публикуйте заполненный файл и не коммитьте config/config.yaml.
+# Пустые реквизиты выключенных модулей допускаются.
+
+config_version: 1
+
+# ------------------------------------------------------------
+# Дом: идентификатор единой системы, а не список помещений
+# ------------------------------------------------------------
+home:
+  id: "main-home"               # Не менять после ввода в эксплуатацию
+  name: "HomeCloud"
+  timezone: "Europe/Moscow"     # Указать часовой пояс дома
+  locale: "ru-RU"
+  units: "metric"
+
+# ------------------------------------------------------------
+# HTTP listener, через который выполняется WebSocket Upgrade
+# ------------------------------------------------------------
+server:
+  host: ""                      # Обязательно заполните
+  port: 0                       # Обязательно заполните
+  websocket_path: ""
+  read_header_timeout_seconds: 5
+  shutdown_timeout_seconds: 20
+
+  tls:
+    mode: "disabled"            # disabled | native | reverse_proxy
+    cert_file: ""               # Только для native
+    key_file: ""                # Только для native
+
+  reverse_proxy:
+    trusted_cidrs: []           # Заполняется только при reverse_proxy
+
+# ------------------------------------------------------------
+# WS: транспорт, ограничения, стабильность соединений
+# ------------------------------------------------------------
+websocket:
+  protocol_version: 1
+  encoding: "json"              # На первом этапе только JSON
+  allowed_origins:             # Для браузеров; сохраняем проверку Origin
+    - "http://localhost:3000"
+    - "http://127.0.0.1:3000"
+  max_connections: 256
+  max_connections_per_ip: 16
+  max_message_bytes: 65536
+  max_messages_per_second: 30
+  max_outbound_queue_messages: 128
+  hello_timeout_seconds: 10       # Первое сообщение hello, без токена
+  ping_interval_seconds: 30
+  pong_timeout_seconds: 10
+  write_timeout_seconds: 10
+  compression_enabled: false
+
+# ------------------------------------------------------------
+# Сообщения: запросы, подтверждения, подписки, состояние
+# ------------------------------------------------------------
+message_bus:
+  require_message_id: true
+  require_action_namespace: true  # Например: device.command, media.play
+  require_subscription: true      # Клиент не получает все события подряд
+  send_initial_snapshot: true
+  publish_state_deltas: true
+  command_ack_timeout_seconds: 10
+  deduplication_window_seconds: 300
+  max_pending_commands_per_client: 32
+  slow_consumer_policy: "disconnect"  # disconnect | drop_noncritical
+  event_history:
+    enabled: false               # Включим вместе с БД и моделью событий
+    retention_days: 7
+
+# ------------------------------------------------------------
+# Доступ: пользователи, устройства, права, внешнее подключение
+# ------------------------------------------------------------
+security:
+  authorization:
+    default_policy: "deny"
+    check_every_command: true
+    roles: ["owner", "admin", "member", "guest", "device", "service"]
+    permissions_storage: "database"  # Матрица прав меняется из интерфейса
+
+  pairing:
+    require_approval: true
+    pairing_window_seconds: 120
+    max_attempts: 5
+
+  critical_actions:
+    require_confirmation: true
+    confirmation_timeout_seconds: 30
+    actions:
+      - "security.unlock"
+      - "security.disarm"
+      - "system.shutdown"
+      - "system.restart"
+      - "storage.delete"
+      - "access.grant"
+
+  remote_access:
+    enabled: false              # Снаружи пока не открываем
+    require_tls: true
+    automatic_port_forwarding: false
+
+# ------------------------------------------------------------
+# СУБД: один выбранный драйвер; таблицы задаются миграциями
+# ------------------------------------------------------------
+db_server:
+  host: ""                      # Для сетевых СУБД
+  port: 0
+  database: ""
+  username: ""
+  password: ""                 # Для сетевых СУБД
+  file_path: "./data/homecloud.db"  # SQLite / DuckDB; только локальный диск
+  tls_enabled: false
+  connection_timeout: 10        # Секунды
+  max_open_connections: 10
+  max_idle_connections: 5
+  connection_max_lifetime_seconds: 1800
+  connection_max_idle_seconds: 300
+  auto_migrate: false           # Изменение схемы БД — отдельная операция
+
+  sqlite:
+    journal_mode: "WAL"
+    busy_timeout_ms: 5000
+    foreign_keys: true
+
+# ------------------------------------------------------------
+# Устройства: обнаружение и регистрация, не перечень устройств
+# ------------------------------------------------------------
+devices:
+  enabled: true
+  require_pairing: true
+  automatic_registration: false
+  heartbeat_interval_seconds: 30
+  offline_after_seconds: 90
+  preserve_last_known_state: true
+
+  discovery:
+    mdns_enabled: false
+    ssdp_enabled: false
+    bluetooth_enabled: false
+    network_scan_enabled: false
+
+# ------------------------------------------------------------
+# Агенты: другие ПК, серверы, панели и сервисные узлы
+# ------------------------------------------------------------
+agents:
+  enabled: false
+  transport: "websocket"
+  approval_required: true
+  heartbeat_interval_seconds: 30
+  offline_after_seconds: 90
+  collect_metrics: ["cpu", "memory", "disk", "network", "services"]
+  allow_remote_shell: false
+  allow_remote_reboot: false
+  allow_service_control: false
+
+# ------------------------------------------------------------
+# Экраны: телевизоры, планшеты, консоли, кухонные дисплеи
+# ------------------------------------------------------------
+screens:
+  enabled: false
+  allow_remote_content_push: false
+  allow_remote_url_open: false
+  allowed_url_hosts: []        # Список доверенных доменов при включении
+  default_content_timeout_seconds: 300
+
+# ------------------------------------------------------------
+# Медиа: backend посылает команды, не гонит видео внутри JSON
+# ------------------------------------------------------------
+media:
+  enabled: false
+  control_only: true            # Потоки: через отдельный транспорт
+  allow_external_media_urls: false
+  allowed_media_hosts: []
+  adapters:
+    dlna_enabled: false
+    cast_enabled: false
+    android_tv_enabled: false
+    webrtc_signaling_enabled: false
+
+# ------------------------------------------------------------
+# Звук: громкость, зоны, мультирум
+# ------------------------------------------------------------
+audio:
+  enabled: false
+  default_volume_percent: 35
+  max_volume_percent: 80
+  multiroom_enabled: false
+  multiroom_sync_mode: "endpoint_managed"  # Не обещает синхронность сам по себе
+  microphone_capture_enabled: false
+
+# ------------------------------------------------------------
+# Файлы и хранилища: разрешённые корни, без свободного доступа
+# к файловой системе компьютера
+# ------------------------------------------------------------
+storage:
+  enabled: false
+  data_dir: "./data"
+  temp_dir: "./data/tmp"
+  files_dir: "./data/files"
+  allowed_roots: ["./data/files"]
+  allow_arbitrary_filesystem_paths: false
+  max_upload_size_mb: 1024
+  transfer_transport: "https"   # Будущий отдельный файловый endpoint
+  websocket_binary_file_transfer: false
+  external_mounts: []           # NFS/SMB/локальные каталоги — позже
+
+# ------------------------------------------------------------
+# Протоколы и внешние системы (не обязательные части ядра)
+# ------------------------------------------------------------
+integrations:
+  mqtt:
+    enabled: false
+    host: "127.0.0.1"
+    port: 1883
+    tls_enabled: false
+    client_id: "homecloud-backend"
+    username: ""
+    password: ""
+    base_topic: "homecloud"
+    qos: 1
+    retain_state: true
+
+  home_assistant:
+    enabled: false
+    url: ""
+    token: ""
+
+  plex:
+    enabled: false
+    url: ""
+    token: ""
+
+  cups:
+    enabled: false
+    url: "http://127.0.0.1:631"
+    allow_submit_jobs: false
+
+# ------------------------------------------------------------
+# Автоматизация: правила, расписания и сценарии — в базе
+# ------------------------------------------------------------
+automations:
+  enabled: false
+  max_concurrent_actions: 4
+  default_action_timeout_seconds: 30
+  prevent_duplicate_commands: true
+  allow_critical_actions: false
+  persist_schedules: true
+
+# ------------------------------------------------------------
+# Уведомления: события интерфейса
+# ------------------------------------------------------------
+notifications:
+  enabled: true
+  websocket_enabled: true
+  deduplication_window_seconds: 60
+  notify_on:
+    - "agent.offline"
+    - "device.offline"
+    - "storage.health_warning"
+    - "backup.failed"
+    - "security.failed_login"
+
+# ------------------------------------------------------------
+# Наблюдаемость: здоровье приложения и метрики узлов
+# ------------------------------------------------------------
+monitoring:
+  enabled: true
+  health_path: "/healthz"       # Только краткий статус, без приватных данных
+  metrics_endpoint_enabled: false
+  metrics_path: "/metrics"     # При включении — только защищённый доступ
+  sample_interval_seconds: 30
+  metrics_retention_days: 14
+
+# ------------------------------------------------------------
+# Журналы и история чувствительных действий
+# ------------------------------------------------------------
+logging:
+  level: "info"                 # debug | info | warn | error
+  format: "json"                # json | text
+  output: "stdout"
+  log_message_payloads: false
+  log_secrets: false
+
+audit:
+  enabled: true
+  retention_days: 90
+  log_auth_events: true
+  log_permission_changes: true
+  log_critical_commands: true
+
+# ------------------------------------------------------------
+# Резервное копирование: выключено до выбора места хранения
+# ------------------------------------------------------------
+backups:
+  enabled: false
+  destination_dir: ""           # На отдельном диске / ресурсе
+  schedule: "03:00"             # Локальное время home.timezone
+  keep_last: 3
+  include_database: true
+  include_configuration: true
+  include_media_files: false
+  encryption_enabled: true
+  encryption_key: ""           # При включении резервного шифрования
+
+# ============================================================
+# Optional media companion: startup settings only; rooms/playbacks live elsewhere.
+# In your actual config/config.yaml add this block and fill paths to enable it.
+media_gateway:
+  enabled: false
+  executable: ""
+  working_dir: ""
+  config_path: "config/config.yaml"
+  health_url: "http://127.0.0.1:8091/healthz"
+  startup_timeout_seconds: 15
+  shutdown_timeout_seconds: 10
+  max_restarts: 3
+  restart_backoff_seconds: 3
+
+# START CONFIGURATION — обязательно в конце файла
+# ============================================================
+type_start:
+  # 0xA1 — FAST: пропустить углублённую проверку настроек,
+  #         но НИКОГДА не отключать аутентификацию/права.
+  # 0xA2 — STRICT: проверить всё активированное и зависимости.
+  # Пустое или неизвестное значение — отказ в запуске.
+  start_byte:
+
+  # DATABASE TYPE:
+  # 0x00 — SQLite
+  # 0x01 — MySQL
+  # 0x02 — PostgreSQL
+  # 0x03 — MariaDB
+  # 0x04 — Microsoft SQL Server
+  # 0x05 — Oracle Database
+  # 0x06 — CockroachDB
+  # 0x07 — Firebird
+  # 0x08 — IBM Db2
+  # 0x09 — ClickHouse
+  # 0x0A — DuckDB
+  # Код не означает, что драйвер уже реализован.
+  # Отсутствие значения НЕ равно SQLite (0x00).
+  db_byte:
