@@ -94,7 +94,11 @@ func New(cfg *wsconfig.Config, db *sql.DB, logger *slog.Logger, storageManagers 
 		DeviceList: func(ctx context.Context) ([]devicestore.Record, error) {
 			return s.deviceStore.List(ctx, s.clients.IsOnline)
 		},
-		DeviceRename: s.deviceStore.Rename,
+		DeviceRename: func(ctx context.Context, id, name string) (devicestore.Record, error) {
+			item, err := s.deviceStore.Rename(ctx, id, name)
+			if err == nil { item.Online = s.clients.IsOnline(id) }
+			return item, err
+		},
 		PublishDeviceEvent: func(ctx context.Context, topic string, payload any) error {
 			_, err := s.PublishEvent(ctx, topic, payload)
 			return err
