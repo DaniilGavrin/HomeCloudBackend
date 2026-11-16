@@ -27,13 +27,9 @@ type testPeer struct {
 
 func freeAddr(t *testing.T) string {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := l.Addr().String()
-	_ = l.Close()
-	return addr
+	// Let the OS allocate a distinct ephemeral port atomically when Raft binds.
+	// Reserving and closing a port here creates a TOCTOU race, especially on Windows.
+	return "127.0.0.1:0"
 }
 func startPeer(t *testing.T, nodeID, addr, dir string, bootstrap bool) *testPeer {
 	t.Helper()
@@ -59,6 +55,9 @@ func startPeer(t *testing.T, nodeID, addr, dir string, bootstrap bool) *testPeer
 	return &testPeer{db: db, store: store, svc: svc, node: nodeID, addr: svc.Address(), dir: dir}
 }
 func (p *testPeer) close() {
+	if p == nil {
+		return
+	}
 	if p.svc != nil {
 		_ = p.svc.Close()
 		p.svc = nil
@@ -94,14 +93,14 @@ func TestThreeNodesElectionReplicationAndFailover(t *testing.T) {
 	ids := []string{"hc-" + strings.Repeat("a", 32), "hc-" + strings.Repeat("b", 32), "hc-" + strings.Repeat("c", 32)}
 	root := t.TempDir()
 	peers := make([]*testPeer, 3)
-	for i := 0; i < 3; i++ {
-		peers[i] = startPeer(t, ids[i], freeAddr(t), filepath.Join(root, fmt.Sprintf("node%d", i)), i == 0)
-	}
 	defer func() {
 		for _, p := range peers {
 			p.close()
 		}
 	}()
+	for i := 0; i < 3; i++ {
+		peers[i] = startPeer(t, ids[i], freeAddr(t), filepath.Join(root, fmt.Sprintf("node%d", i)), i == 0)
+	}
 	waitUntil(t, 10*time.Second, func() bool { return leader(peers...) != nil })
 	first := leader(peers...)
 	ctx, cancel := context.WithTimeout(context.Background(), 75*time.Second)
@@ -194,14 +193,14 @@ func TestNoQuorumRejectsNewRegistryWrites(t *testing.T) {
 	ids := []string{"hc-" + strings.Repeat("d", 32), "hc-" + strings.Repeat("e", 32), "hc-" + strings.Repeat("f", 32)}
 	root := t.TempDir()
 	ps := make([]*testPeer, 3)
-	for i := range ps {
-		ps[i] = startPeer(t, ids[i], freeAddr(t), filepath.Join(root, fmt.Sprintf("no-quorum-%d", i)), i == 0)
-	}
 	defer func() {
 		for _, p := range ps {
 			p.close()
 		}
 	}()
+	for i := range ps {
+		ps[i] = startPeer(t, ids[i], freeAddr(t), filepath.Join(root, fmt.Sprintf("no-quorum-%d", i)), i == 0)
+	}
 	waitUntil(t, 10*time.Second, func() bool { return leader(ps...) != nil })
 	current := leader(ps...)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
