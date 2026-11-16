@@ -88,3 +88,15 @@ func (s *Store) Rename(ctx context.Context, deviceID, name string) (Record, erro
 	if err != nil { return Record{}, fmt.Errorf("read renamed device: %w", err) }
 	return item, nil
 }
+
+ 
+// Forget removes a known device from the persistent catalogue. The caller
+// must verify that the device is currently offline before invoking it.
+func (s *Store) Forget(ctx context.Context, deviceID string) error {
+	result, err := s.db.ExecContext(ctx, "DELETE FROM hc_devices WHERE device_id = ?", deviceID)
+	if err != nil { return fmt.Errorf("forget device: %w", err) }
+	affected, err := result.RowsAffected()
+	if err != nil { return fmt.Errorf("check forgotten device: %w", err) }
+	if affected == 0 { return ErrNotFound }
+	return nil
+}
