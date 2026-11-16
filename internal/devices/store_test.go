@@ -50,3 +50,16 @@ func TestRenameValidationAndNotFound(t *testing.T) {
 	}
 	if _, err := store.Rename(ctx, "device-1", "Рабочий компьютер"); err != nil { t.Fatal(err) }
 }
+
+func TestForgetRemovesOnlyKnownDevice(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	if err := store.Register(ctx, "device-1", "desktop"); err != nil { t.Fatal(err) }
+	if err := store.Forget(ctx, "device-1"); err != nil { t.Fatal(err) }
+	if err := store.Forget(ctx, "device-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+	items, err := store.List(ctx, nil)
+	if err != nil { t.Fatal(err) }
+	if len(items) != 0 { t.Fatalf("expected empty registry, got %+v", items) }
+}
