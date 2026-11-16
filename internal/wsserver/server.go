@@ -99,6 +99,10 @@ func New(cfg *wsconfig.Config, db *sql.DB, logger *slog.Logger, storageManagers 
 			if err == nil { item.Online = s.clients.IsOnline(id) }
 			return item, err
 		},
+		DeviceForget: func(ctx context.Context, id string) error {
+			if s.clients.IsOnline(id) { return errors.New("нельзя удалить подключённое устройство") }
+			return s.deviceStore.Forget(ctx, id)
+		},
 		PublishDeviceEvent: func(ctx context.Context, topic string, payload any) error {
 			_, err := s.PublishEvent(ctx, topic, payload)
 			return err
