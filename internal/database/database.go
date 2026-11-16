@@ -48,6 +48,15 @@ CREATE TABLE IF NOT EXISTS hc_storage_index (
  UNIQUE(storage_id, relative_path)
 );
 CREATE INDEX IF NOT EXISTS idx_hc_storage_index_storage ON hc_storage_index(storage_id, indexed_at);
+CREATE TABLE IF NOT EXISTS hc_devices (
+    device_id TEXT PRIMARY KEY,
+    client_type TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    first_seen_at INTEGER NOT NULL,
+    last_seen_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hc_devices_last_seen ON hc_devices(last_seen_at);
 CREATE TABLE IF NOT EXISTS audit_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_time TEXT NOT NULL,
@@ -122,6 +131,9 @@ func Verify(ctx context.Context, db *sql.DB) error {
 	}
 	if err := db.QueryRowContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name='audit_events'").Scan(&name); err != nil {
 		return errors.New("таблица audit_events отсутствует: сначала go run . init-db")
+	}
+	if err := db.QueryRowContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name='hc_devices'").Scan(&name); err != nil {
+		return errors.New("таблица hc_devices отсутствует: сначала выполните go run . init-db")
 	}
 	return nil
 }
