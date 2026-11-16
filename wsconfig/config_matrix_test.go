@@ -162,8 +162,8 @@ func TestConfigSchemaParity(t *testing.T) {
 				t.Errorf("schema differs from %s: missing=%v extra=%v", file, difference(fromSchema, fromYAML), difference(fromYAML, fromSchema))
 			}
 		}
-		if len(fromSchema) != 193 {
-			t.Fatalf("expected 193 YAML leaves, got %d (update contract and tests intentionally)", len(fromSchema))
+		if len(fromSchema) != 181 {
+			t.Fatalf("expected 181 YAML leaves, got %d (update contract and tests intentionally)", len(fromSchema))
 		}
 	})
 }
