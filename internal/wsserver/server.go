@@ -61,7 +61,11 @@ func New(cfg *wsconfig.Config, db *sql.DB, logger *slog.Logger, storageManagers 
 		events:   events.New(),
 		gateways: mediagateway.New(), rooms: mediarooms.New(4), heartbeats: roomheartbeat.New(), mediaControls: roomcontrol.New(), heartbeatStop: make(chan struct{})}
 	s.storageAgents = storageagent.New()
-	s.deviceStore = devicestore.New(db)
+	// The device registry shares the primary SQLite database. Keep it optional
+	// for isolated WebSocket tests and embedders that construct a server without DB.
+	if db != nil {
+		s.deviceStore = devicestore.New(db)
+	}
 	if len(storageManagers) > 0 {
 		s.storage = storageManagers[0]
 	}
@@ -92,14 +96,17 @@ func New(cfg *wsconfig.Config, db *sql.DB, logger *slog.Logger, storageManagers 
 		Online:              s.clients.Online,
 		ConnectedDevices:    s.clients.List,
 		DeviceList: func(ctx context.Context) ([]devicestore.Record, error) {
+			if s.deviceStore == nil { return nil, errors.New("реестр устройств недоступен без базы данных") }
 			return s.deviceStore.List(ctx, s.clients.IsOnline)
 		},
 		DeviceRename: func(ctx context.Context, id, name string) (devicestore.Record, error) {
+			if s.deviceStore == nil { return devicestore.Record{}, errors.New("реестр устройств недоступен без базы данных") }
 			item, err := s.deviceStore.Rename(ctx, id, name)
 			if err == nil { item.Online = s.clients.IsOnline(id) }
 			return item, err
 		},
 		DeviceForget: func(ctx context.Context, id string) error {
+			if s.deviceStore == nil { return errors.New("реестр устройств недоступен без базы данных") }
 			if s.clients.IsOnline(id) { return errors.New("нельзя удалить подключённое устройство") }
 			return s.deviceStore.Forget(ctx, id)
 		},
@@ -304,15 +311,17 @@ func (s *Server) Handle(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusPolicyViolation, err.Error())
 		return
 	}
-	registerCtx, registerCancel := context.WithTimeout(ctx, 3*time.Second)
-	if err := s.deviceStore.Register(registerCtx, peer.DeviceID, peer.ClientType); err != nil {
+	if s.deviceStore != nil {
+		registerCtx, registerCancel := context.WithTimeout(ctx, 3*time.Second)
+		if err := s.deviceStore.Register(registerCtx, peer.DeviceID, peer.ClientType); err != nil {
+			registerCancel()
+			s.clients.Unregister(peer)
+			s.log.Error("device registry registration failed", "device_id", peer.DeviceID, "error", err)
+			_ = conn.Close(websocket.StatusInternalError, "device registration failed")
+			return
+		}
 		registerCancel()
-		s.clients.Unregister(peer)
-		s.log.Error("device registry registration failed", "device_id", peer.DeviceID, "error", err)
-		_ = conn.Close(websocket.StatusInternalError, "device registration failed")
-		return
 	}
-	registerCancel()
 	subscriber := s.events.Attach(peer.DeviceID, func(ctx context.Context, message commands.Outbound) error {
 		err := peer.QueueJSON(ctx, message)
 		if errors.Is(err, connections.ErrQueueFull) && s.cfg.MessageBus.SlowConsumerPolicy == "disconnect" {
