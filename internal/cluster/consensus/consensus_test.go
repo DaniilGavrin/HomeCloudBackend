@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,11 +25,27 @@ type testPeer struct {
 	dir   string
 }
 
-func freeAddr(t *testing.T) string {
+func freeAddrs(t *testing.T, count int) []string {
 	t.Helper()
-	// Let the OS allocate a distinct ephemeral port atomically when Raft binds.
-	// Reserving and closing a port here creates a TOCTOU race, especially on Windows.
-	return "127.0.0.1:0"
+	listeners := make([]net.Listener, 0, count)
+	addresses := make([]string, 0, count)
+	for i := 0; i < count; i++ {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			for _, opened := range listeners {
+				_ = opened.Close()
+			}
+			t.Fatalf("reserve test address: %v", err)
+		}
+		listeners = append(listeners, listener)
+		addresses = append(addresses, listener.Addr().String())
+	}
+	for _, listener := range listeners {
+		if err := listener.Close(); err != nil {
+			t.Fatalf("release test address: %v", err)
+		}
+	}
+	return addresses
 }
 func startPeer(t *testing.T, nodeID, addr, dir string, bootstrap bool) *testPeer {
 	t.Helper()
@@ -92,13 +109,14 @@ func TestThreeNodesElectionReplicationAndFailover(t *testing.T) {
 	ids := []string{"hc-" + strings.Repeat("a", 32), "hc-" + strings.Repeat("b", 32), "hc-" + strings.Repeat("c", 32)}
 	root := t.TempDir()
 	peers := make([]*testPeer, 3)
+	addrs := freeAddrs(t, len(peers))
 	defer func() {
 		for _, p := range peers {
 			p.close()
 		}
 	}()
 	for i := 0; i < 3; i++ {
-		peers[i] = startPeer(t, ids[i], freeAddr(t), filepath.Join(root, fmt.Sprintf("node%d", i)), i == 0)
+		peers[i] = startPeer(t, ids[i], addrs[i], filepath.Join(root, fmt.Sprintf("node%d", i)), i == 0)
 	}
 	waitUntil(t, 10*time.Second, func() bool { return leader(peers...) != nil })
 	first := leader(peers...)
@@ -192,13 +210,14 @@ func TestNoQuorumRejectsNewRegistryWrites(t *testing.T) {
 	ids := []string{"hc-" + strings.Repeat("d", 32), "hc-" + strings.Repeat("e", 32), "hc-" + strings.Repeat("f", 32)}
 	root := t.TempDir()
 	ps := make([]*testPeer, 3)
+	addrs := freeAddrs(t, len(ps))
 	defer func() {
 		for _, p := range ps {
 			p.close()
 		}
 	}()
 	for i := range ps {
-		ps[i] = startPeer(t, ids[i], freeAddr(t), filepath.Join(root, fmt.Sprintf("no-quorum-%d", i)), i == 0)
+		ps[i] = startPeer(t, ids[i], addrs[i], filepath.Join(root, fmt.Sprintf("no-quorum-%d", i)), i == 0)
 	}
 	waitUntil(t, 10*time.Second, func() bool { return leader(ps...) != nil })
 	current := leader(ps...)
