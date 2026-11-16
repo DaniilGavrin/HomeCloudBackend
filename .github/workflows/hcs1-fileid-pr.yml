@@ -1,0 +1,21 @@
+name: Backend HCS1 file-ID checks
+on:
+  pull_request:
+    paths:
+      - 'internal/mediarooms/**'
+      - '.github/workflows/hcs1-fileid-pr.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go mod verify
+      - run: go test -count=1 ./internal/mediarooms
+      - run: go vet ./internal/mediarooms

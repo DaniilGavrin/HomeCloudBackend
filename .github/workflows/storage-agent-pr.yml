@@ -1,0 +1,21 @@
+name: Backend storage-agent protocol checks
+on:
+  pull_request:
+    paths:
+      - 'internal/wsserver/storage_agent.go'
+      - 'internal/storageagent/**'
+      - '.github/workflows/storage-agent-pr.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go mod verify
+      - run: go test -count=1 ./internal/wsserver ./internal/storageagent
+      - run: go vet ./internal/wsserver ./internal/storageagent
