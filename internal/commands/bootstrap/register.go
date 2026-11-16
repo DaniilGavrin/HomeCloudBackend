@@ -8,6 +8,8 @@ import (
 	"HomeCloudBackend/internal/commands"
 	"HomeCloudBackend/internal/commands/clients"
 	eventcommands "HomeCloudBackend/internal/commands/events"
+	devicecommands "HomeCloudBackend/internal/commands/devices"
+	devicestore "HomeCloudBackend/internal/devices"
 	storagecommands "HomeCloudBackend/internal/commands/storage"
 	streamcommands "HomeCloudBackend/internal/commands/streams"
 	"HomeCloudBackend/internal/commands/system"
@@ -21,6 +23,10 @@ import (
 type Dependencies struct {
 	Online              func() int
 	ConnectedDevices    func() []map[string]string
+	DeviceList          func(context.Context) ([]devicestore.Record, error)
+	DeviceRename        func(context.Context, string, string) (devicestore.Record, error)
+	DeviceForget        func(context.Context, string) error
+	PublishDeviceEvent  func(context.Context, string, any) error
 	QueueToDevice       func(context.Context, string, commands.Outbound) error
 	RequireSubscription bool
 	PublishEvent        func(context.Context, string, string, any) (eventbus.PublishResult, error)
@@ -47,6 +53,7 @@ func Register(r *commands.Registry, d Dependencies) {
 		RequireSubscription: d.RequireSubscription,
 	})
 	clients.Register(r, clients.Dependencies{Connected: d.ConnectedDevices, QueueToDevice: d.QueueToDevice})
+	devicecommands.Register(r, devicecommands.Dependencies{List: d.DeviceList, Rename: d.DeviceRename, Forget: d.DeviceForget, Publish: d.PublishDeviceEvent})
 	eventcommands.Register(r, eventcommands.Dependencies{Publish: d.PublishEvent})
 	streamcommands.Register(r, streamcommands.Dependencies{Create: d.StreamCreate, Cancel: d.StreamCancel, List: d.StreamList, QueueToDevice: d.QueueToDevice, Path: d.StreamPath})
 	storagecommands.Register(r, storagecommands.Dependencies{Register: d.StorageRegister, List: d.StorageList, ListFiles: d.StorageFiles, Scan: d.StorageScan, StartIndex: d.StorageIndex, IndexStatus: d.StorageIndexStatus, CancelIndex: d.StorageIndexCancel, GetFile: d.StorageGetFile, PrepareUpload: d.StorageUpload, PrepareDownload: d.StorageDownload, Cancel: d.StorageCancel})

@@ -15,6 +15,7 @@ import (
 	"HomeCloudBackend/internal/commands"
 	"HomeCloudBackend/internal/commands/bootstrap"
 	"HomeCloudBackend/internal/connections"
+	devicestore "HomeCloudBackend/internal/devices"
 	"HomeCloudBackend/internal/events"
 	"HomeCloudBackend/internal/mediagateway"
 	"HomeCloudBackend/internal/mediarooms"
@@ -50,6 +51,7 @@ type Server struct {
 	localNodeID    string
 	storage        *storage.Manager
 	storageAgents *storageagent.Registry
+	deviceStore   *devicestore.Store
 }
 
 func New(cfg *wsconfig.Config, db *sql.DB, logger *slog.Logger, storageManagers ...*storage.Manager) *Server {
@@ -59,6 +61,7 @@ func New(cfg *wsconfig.Config, db *sql.DB, logger *slog.Logger, storageManagers 
 		events:   events.New(),
 		gateways: mediagateway.New(), rooms: mediarooms.New(4), heartbeats: roomheartbeat.New(), mediaControls: roomcontrol.New(), heartbeatStop: make(chan struct{})}
 	s.storageAgents = storageagent.New()
+	s.deviceStore = devicestore.New(db)
 	if len(storageManagers) > 0 {
 		s.storage = storageManagers[0]
 	}
@@ -88,6 +91,22 @@ func New(cfg *wsconfig.Config, db *sql.DB, logger *slog.Logger, storageManagers 
 	bootstrap.Register(s.registry, bootstrap.Dependencies{
 		Online:              s.clients.Online,
 		ConnectedDevices:    s.clients.List,
+		DeviceList: func(ctx context.Context) ([]devicestore.Record, error) {
+			return s.deviceStore.List(ctx, s.clients.IsOnline)
+		},
+		DeviceRename: func(ctx context.Context, id, name string) (devicestore.Record, error) {
+			item, err := s.deviceStore.Rename(ctx, id, name)
+			if err == nil { item.Online = s.clients.IsOnline(id) }
+			return item, err
+		},
+		DeviceForget: func(ctx context.Context, id string) error {
+			if s.clients.IsOnline(id) { return errors.New("нельзя удалить подключённое устройство") }
+			return s.deviceStore.Forget(ctx, id)
+		},
+		PublishDeviceEvent: func(ctx context.Context, topic string, payload any) error {
+			_, err := s.PublishEvent(ctx, topic, payload)
+			return err
+		},
 		QueueToDevice:       s.clients.QueueToDevice,
 		RequireSubscription: cfg.MessageBus.RequireSubscription,
 		PublishEvent:        s.events.Publish,
@@ -285,6 +304,15 @@ func (s *Server) Handle(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusPolicyViolation, err.Error())
 		return
 	}
+	registerCtx, registerCancel := context.WithTimeout(ctx, 3*time.Second)
+	if err := s.deviceStore.Register(registerCtx, peer.DeviceID, peer.ClientType); err != nil {
+		registerCancel()
+		s.clients.Unregister(peer)
+		s.log.Error("device registry registration failed", "device_id", peer.DeviceID, "error", err)
+		_ = conn.Close(websocket.StatusInternalError, "device registration failed")
+		return
+	}
+	registerCancel()
 	subscriber := s.events.Attach(peer.DeviceID, func(ctx context.Context, message commands.Outbound) error {
 		err := peer.QueueJSON(ctx, message)
 		if errors.Is(err, connections.ErrQueueFull) && s.cfg.MessageBus.SlowConsumerPolicy == "disconnect" {
