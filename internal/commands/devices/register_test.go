@@ -35,3 +35,17 @@ func TestDevicesRenamePublishesUpdatedRecord(t *testing.T) {
 	out := r.Dispatch(context.Background(), commands.Inbound{V:1, ID:"rename-1", Type:"command", Action:"devices.rename", Data:json.RawMessage(`{"device_id":"desktop-1","name":"Рабочий компьютер"}`)}, commands.ClientContext{})
 	if out.Type != "result" || publishedTopic != "devices.updated" { t.Fatalf("response=%+v topic=%q", out, publishedTopic) }
 }
+
+func TestDevicesForgetPublishesRemoval(t *testing.T) {
+	r := commands.NewRegistry()
+	var publishedTopic string
+	var forgotten string
+	Register(r, Dependencies{
+		Forget: func(_ context.Context, id string) error { forgotten = id; return nil },
+		Publish: func(_ context.Context, topic string, payload any) error { publishedTopic = topic; return nil },
+	})
+	out := r.Dispatch(context.Background(), commands.Inbound{V:1, ID:"forget-1", Type:"command", Action:"devices.forget", Data:json.RawMessage(`{"device_id":"device-1"}`)}, commands.ClientContext{})
+	if out.Type != "result" || forgotten != "device-1" || publishedTopic != "devices.removed" {
+		t.Fatalf("response=%+v forgotten=%q topic=%q", out, forgotten, publishedTopic)
+	}
+}
