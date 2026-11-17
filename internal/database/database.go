@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"HomeCloudBackend/internal/cluster/registry"
+	"HomeCloudBackend/internal/telemetry"
 	"HomeCloudBackend/wsconfig"
 	_ "modernc.org/sqlite"
 )
@@ -120,6 +121,9 @@ func Init(ctx context.Context, db *sql.DB) error {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("инициализация БД: %w", err)
 		}
+	}
+	if err := telemetry.InitSQLiteSchema(ctx, db); err != nil {
+		return err
 	}
 	return registry.Migrate(ctx, db)
 }
