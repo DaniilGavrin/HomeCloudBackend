@@ -19,6 +19,14 @@ type metricsQueryRequest struct {
 	Limit        int    `json:"limit,omitempty"`
 }
 
+func subscribedToMetrics(peer commands.ClientContext) bool {
+	if peer.Subscribed("system.metrics") { return true }
+	for _, group := range []string{"overview", "cpu", "memory", "disks", "network", "processes", "services", "diagnostics"} {
+		if peer.Subscribed("system.metrics." + group) { return true }
+	}
+	return false
+}
+
 // RegisterTelemetry exposes the core's latest cache and historical time-series
 // through the existing command protocol. Live batches are published by the
 // transport observer on the exact system.metrics event topic.
@@ -27,7 +35,7 @@ func RegisterTelemetry(r *commands.Registry, core *telemetry.Core, requireSubscr
 		return errors.New("telemetry core is unavailable")
 	}
 	if err := r.Register("system.metrics.latest", func(ctx context.Context, msg commands.Inbound, peer commands.ClientContext) (any, error) {
-		if requireSubscription && !peer.Subscribed("system.metrics") {
+		if requireSubscription && !subscribedToMetrics(peer) {
 			return nil, errors.New("subscribe to system.metrics first")
 		}
 		var request struct {
@@ -57,7 +65,7 @@ func RegisterTelemetry(r *commands.Registry, core *telemetry.Core, requireSubscr
 		return err
 	}
 	return r.Register("system.metrics.query", func(ctx context.Context, msg commands.Inbound, peer commands.ClientContext) (any, error) {
-		if requireSubscription && !peer.Subscribed("system.metrics") {
+		if requireSubscription && !subscribedToMetrics(peer) {
 			return nil, errors.New("subscribe to system.metrics first")
 		}
 		var request metricsQueryRequest
