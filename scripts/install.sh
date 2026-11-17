@@ -3,9 +3,10 @@ set -Eeuo pipefail
 
 OWNER="DaniilGavrin"
 REPO="HomeCloudBackend"
-BRANCH="main"
+# Bootstrap from an immutable, reviewed commit rather than a mutable branch.
+CLI_REV="0bfc01f9d3f06667e1796c509387779c3ce45ffc"
 DEST="/usr/local/bin/homecloud"
-SOURCE="https://raw.githubusercontent.com/$OWNER/$REPO/$BRANCH/scripts/homecloud"
+SOURCE="https://raw.githubusercontent.com/$OWNER/$REPO/$CLI_REV/scripts/homecloud"
 
 if [[ "$EUID" -ne 0 ]]; then
   echo "Запусти установщик от root: sudo bash install.sh" >&2
@@ -13,13 +14,19 @@ if [[ "$EUID" -ne 0 ]]; then
 fi
 command -v curl >/dev/null 2>&1 || { echo "Требуется curl." >&2; exit 1; }
 command -v install >/dev/null 2>&1 || { echo "Требуется install." >&2; exit 1; }
+command -v bash >/dev/null 2>&1 || { echo "Требуется bash." >&2; exit 1; }
 
 tmp="$(mktemp)"
-cleanup() { rm -f "$tmp"; }
+backup=""
+cleanup() {
+  rm -f "$tmp"
+  [[ -z "$backup" ]] || rm -f "$backup"
+}
 trap cleanup EXIT
 
-echo "[homecloud] Загружаю CLI из публичного репозитория..."
-curl --fail --silent --show-error --location --retry 2 "$SOURCE" -o "$tmp"
+echo "[homecloud] Загружаю CLI из commit $CLI_REV..."
+curl --fail --silent --show-error --location --retry 2 --retry-delay 1 "$SOURCE" -o "$tmp"
+bash -n "$tmp"
 head -n 1 "$tmp" | grep -q '^#!/usr/bin/env bash$' || {
   echo "[homecloud] Полученный файл не похож на Bash CLI; установка отменена." >&2
   exit 1
@@ -29,12 +36,25 @@ grep -q 'HomeCloud local updater' "$tmp" || {
   exit 1
 }
 
+if [[ -e "$DEST" ]]; then
+  backup="$(mktemp)"
+  cp -p -- "$DEST" "$backup"
+fi
+
 install -D -o root -g root -m 0755 "$tmp" "$DEST"
-"$DEST" --help >/dev/null
+if ! "$DEST" --help >/dev/null; then
+  echo "[homecloud] Проверка установленного CLI не пройдена; восстанавливаю предыдущий файл." >&2
+  if [[ -n "$backup" ]]; then
+    install -o root -g root -m 0755 "$backup" "$DEST"
+  else
+    rm -f -- "$DEST"
+  fi
+  exit 1
+fi
+
 echo "[homecloud] CLI установлен: $DEST"
 echo "[homecloud] Команды: homecloud update, homecloud status, homecloud version"
 
-# Self-delete only when this installer was executed as a regular file.
 if [[ -f "${BASH_SOURCE[0]}" && "${BASH_SOURCE[0]}" != /dev/stdin ]]; then
   rm -f -- "${BASH_SOURCE[0]}"
   echo "[homecloud] Установщик удалён."
