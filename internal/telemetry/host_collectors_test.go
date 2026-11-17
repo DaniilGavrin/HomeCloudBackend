@@ -52,4 +52,7 @@ func TestHostCollectorIntervalsAreBounded(t *testing.T) {
 	if got := NewDiskCollector(0).Interval(); got != 5*time.Second {
 		t.Fatalf("disk interval = %s, want 5s minimum", got)
 	}
+	if got := NewFanCollector(0).Interval(); got != 5*time.Second {
+		t.Fatalf("fan interval = %s, want 5s minimum", got)
+	}
 }
