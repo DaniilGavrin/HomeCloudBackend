@@ -58,6 +58,39 @@ func (c *SMARTCollector) Collect(ctx context.Context) ([]Sample, error) {
 		if used := nestedNumber(payload, "nvme_smart_health_information_log", "percentage_used"); used >= 0 {
 			appendMetric("disk.smart.nvme_percentage_used", used, "percent")
 		}
+		// Export all standard NVMe health-log counters when smartctl exposes them.
+		if nvme, ok := payload["nvme_smart_health_information_log"].(map[string]any); ok {
+			fields := map[string]string{
+				"critical_warning":"disk.smart.nvme_critical_warning",
+				"available_spare":"disk.smart.nvme_available_spare_percent",
+				"available_spare_threshold":"disk.smart.nvme_available_spare_threshold_percent",
+				"data_units_read":"disk.smart.nvme_data_units_read",
+				"data_units_written":"disk.smart.nvme_data_units_written",
+				"host_reads":"disk.smart.nvme_host_reads",
+				"host_writes":"disk.smart.nvme_host_writes",
+				"controller_busy_time":"disk.smart.nvme_controller_busy_minutes",
+				"power_cycles":"disk.smart.nvme_power_cycles",
+				"unsafe_shutdowns":"disk.smart.nvme_unsafe_shutdowns",
+				"media_errors":"disk.smart.nvme_media_errors",
+				"num_err_log_entries":"disk.smart.nvme_error_log_entries",
+				"warning_temp_time":"disk.smart.nvme_warning_temperature_minutes",
+				"critical_comp_time":"disk.smart.nvme_critical_temperature_minutes",
+			}
+			for field, metric := range fields {
+				if value, ok := nvme[field].(float64); ok {
+					unit := "count"
+					if strings.Contains(metric, "percent") { unit = "percent" }
+					if strings.Contains(metric, "minutes") { unit = "minutes" }
+					appendMetric(metric, value, unit)
+				}
+			}
+			for i := 1; i <= 8; i++ {
+				field := "temperature_sensor_" + strconv.Itoa(i)
+				if value, ok := nvme[field].(float64); ok && value > 0 {
+					appendMetric("disk.smart.nvme_temperature_sensor_celsius", value, "celsius")
+				}
+			}
+		}
 		if hours := nestedNumber(payload, "power_on_time", "hours"); hours >= 0 {
 			appendMetric("disk.smart.power_on_hours", hours, "hours")
 		}
@@ -68,6 +101,14 @@ func (c *SMARTCollector) Collect(ctx context.Context) ([]Sample, error) {
 					name, _ := attr["name"].(string)
 					rawValue, ok := attr["raw"].(map[string]any); if !ok { continue }
 					value, ok := rawValue["value"].(float64); if !ok { continue }
+					attributeLabels := map[string]string{"device":device,"attribute":strings.ToLower(name)}
+					out = append(out, Sample{Name:"disk.smart.ata_attribute_raw_value", Labels:attributeLabels, Value:value, Unit:"count", Timestamp:now})
+					if normalized, ok := attr["value"].(float64); ok {
+						out = append(out, Sample{Name:"disk.smart.ata_attribute_normalized_value", Labels:attributeLabels, Value:normalized, Unit:"count", Timestamp:now})
+					}
+					if worst, ok := attr["worst"].(float64); ok {
+						out = append(out, Sample{Name:"disk.smart.ata_attribute_worst_value", Labels:attributeLabels, Value:worst, Unit:"count", Timestamp:now})
+					}
 					switch strings.ToLower(name) {
 					case "reallocated_sector_ct": appendMetric("disk.smart.reallocated_sectors", value, "sectors")
 					case "current_pending_sector": appendMetric("disk.smart.pending_sectors", value, "sectors")
