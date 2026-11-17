@@ -168,7 +168,7 @@ func run() error {
 		}
 		logger.Info("host telemetry collectors registered",
 			"sample_interval_seconds", sampleInterval.Seconds(),
-			"collectors", []string{"cpu", "memory", "network", "disk", "processes", "sensors", "backend", "host", "services"})
+			"collectors", []string{"cpu", "memory", "network", "disk", "processes", "sensors", "fans", "backend", "host", "services"})
 		if err := ws.SetTelemetryCore(telemetryCore); err != nil {
 			_ = telemetryCore.Close()
 			return fmt.Errorf("telemetry command registration: %w", err)
