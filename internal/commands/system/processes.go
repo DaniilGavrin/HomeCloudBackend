@@ -102,6 +102,7 @@ func RegisterProcessList(r *commands.Registry, requireSubscription bool) {
 			"process_count": len(all),
 			"returned": len(items),
 			"truncated": truncated,
+			"partial": ctx.Err() != nil,
 			"sort_by": request.SortBy,
 			"processes": items,
 			"collected_at": time.Now().UTC().Format(time.RFC3339Nano),
