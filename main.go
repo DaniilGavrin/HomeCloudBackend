@@ -154,6 +154,14 @@ func run() error {
 			_ = history.Close()
 			return fmt.Errorf("telemetry core initialization: %w", err)
 		}
+		sampleInterval := time.Duration(cfg.Monitoring.SampleIntervalSeconds) * time.Second
+		if err := telemetry.RegisterHostCollectors(telemetryCore, sampleInterval); err != nil {
+			_ = telemetryCore.Close()
+			return fmt.Errorf("host telemetry collector registration: %w", err)
+		}
+		logger.Info("host telemetry collectors registered",
+			"sample_interval_seconds", sampleInterval.Seconds(),
+			"collectors", []string{"cpu", "memory", "network", "disk"})
 		if err := telemetryCore.Start(ctx); err != nil {
 			_ = telemetryCore.Close()
 			return fmt.Errorf("telemetry core startup: %w", err)
