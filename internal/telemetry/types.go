@@ -85,9 +85,9 @@ type Point struct {
 	Labels    map[string]string `json:"labels,omitempty"`
 	Timestamp time.Time         `json:"timestamp"`
 	Value     float64           `json:"value"`
-	Min       float64           `json:"min,omitempty"`
-	Max       float64           `json:"max,omitempty"`
-	Count     int64             `json:"count,omitempty"`
+	Min       float64           `json:"min"`
+	Max       float64           `json:"max"`
+	Count     int64             `json:"count"`
 	Unit      string            `json:"unit,omitempty"`
 }
 
