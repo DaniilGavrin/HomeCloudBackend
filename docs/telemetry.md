@@ -9,7 +9,7 @@ Netdata, Prometheus, or a separate monitoring daemon.
 - Collectors run independently on their own interval and receive a bounded context.
 - A sample has a stable metric name, node ID, optional bounded labels, unit, value,
   and UTC timestamp.
-- The latest cache is in memory; historical samples are persisted asynchronously.
+- The latest cache is in memory; stale series expire after 10 minutes, while historical samples are persisted asynchronously.
 - A full history queue is reported as `telemetry.ErrQueueFull`; collection and
   WebSocket request goroutines never wait for SQLite writes.
 
