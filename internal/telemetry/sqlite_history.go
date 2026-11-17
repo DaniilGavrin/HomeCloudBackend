@@ -247,7 +247,17 @@ func (h *SQLiteHistory) run() {
 			for {
 				select {
 				case batch := <-h.queue:
-					pending = append(pending, batch...)
+					for len(batch) > 0 {
+						space := writeBatchSize - len(pending)
+						if space > len(batch) {
+							space = len(batch)
+						}
+						pending = append(pending, batch[:space]...)
+						batch = batch[space:]
+						if len(pending) >= writeBatchSize {
+							flush()
+						}
+					}
 				default:
 					flush()
 					return
