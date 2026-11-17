@@ -113,6 +113,12 @@ func (c *Core) collect(parent context.Context, collector Collector, interval tim
 	if len(samples) == 0 {
 		return
 	}
+	owned := make([]Sample, len(samples))
+	copy(owned, samples)
+	samples = owned
+	for i := range samples {
+		samples[i].Labels = cloneLabels(samples[i].Labels)
+	}
 	now := time.Now().UTC()
 	for i := range samples {
 		if samples[i].Timestamp.IsZero() {
@@ -184,12 +190,8 @@ func (c *Core) Stats() map[string]uint64 {
 
 func (c *Core) Close() error {
 	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
-		return nil
-	}
-	c.closed = true
 	cancel := c.cancel
+	c.closed = true
 	c.mu.Unlock()
 	if cancel != nil {
 		cancel()
