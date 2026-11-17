@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS hc_metric_samples (
 );
 CREATE INDEX IF NOT EXISTS idx_hc_metric_samples_range
  ON hc_metric_samples(node_id, metric, resolution_ms, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_hc_metric_samples_retention
+ ON hc_metric_samples(resolution_ms, timestamp_ms);
 `
 	for _, statement := range strings.Split(schema, ";") {
 		if strings.TrimSpace(statement) == "" {
