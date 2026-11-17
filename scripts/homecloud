@@ -87,7 +87,7 @@ PY
 }
 
 download_verified() {
-  local repo="$1" asset="$2" dest="$3" meta url expected tag
+  local repo="$1" asset="$2" dest="$3" current="$4" meta url expected tag
   meta="$(mktemp)"
   local rc=0
   if release_asset "$repo" "$asset" >"$meta"; then
@@ -101,6 +101,7 @@ download_verified() {
       *) log "Не удалось получить список релизов $repo."; return 1 ;;
     esac
   fi
+  local -a fields=()
   mapfile -t fields < "$meta"
   rm -f "$meta"
   url="${fields[0]:-}"
@@ -108,6 +109,15 @@ download_verified() {
   tag="${fields[2]:-unknown}"
   [[ "$url" == https://github.com/*/releases/download/* ]] || die "Недопустимый URL релиза."
   [[ "$expected" =~ ^[a-fA-F0-9]{64}$ ]] || die "Некорректный SHA-256 для $asset."
+
+  local installed_hash=""
+  if [[ -f "$current" ]]; then
+    installed_hash="$(sha256sum "$current" | awk '{print $1}')"
+  fi
+  if [[ -n "$installed_hash" && "${installed_hash,,}" == "${expected,,}" ]]; then
+    log "$asset уже актуален: SHA-256 совпадает ($tag)."
+    return 10
+  fi
 
   log "Скачиваю $asset ($tag)"
   if ! curl --fail --silent --show-error --location --retry 2 --retry-delay 1 "$url" -o "$dest"; then
@@ -177,11 +187,14 @@ update_one() {
   backup="$backup_dir/$(basename "$target")"
 
   local download_rc=0
-  if download_verified "$repo" "$asset" "$temp"; then
+  if download_verified "$repo" "$asset" "$temp" "$target"; then
     :
   else
     download_rc=$?
     rm -f "$temp"
+    if [[ "$download_rc" -eq 10 ]]; then
+      return 0
+    fi
     return "$download_rc"
   fi
   install -m 0755 "$target" "$backup"
