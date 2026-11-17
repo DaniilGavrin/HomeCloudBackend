@@ -305,7 +305,7 @@ func telemetryOverviewMetric(name string) bool {
 	case "cpu.usage_percent", "memory.used_percent", "host.uptime_seconds", "services.available":
 		return true
 	default:
-		return strings.HasPrefix(name, "disk.") && strings.Contains(name, "used_percent")
+		return false
 	}
 }
 
