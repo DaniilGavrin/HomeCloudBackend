@@ -137,35 +137,40 @@ func run() error {
 			}
 		}
 	}
-	retentionDays := cfg.Monitoring.MetricsRetentionDays
-	if retentionDays <= 0 {
-		retentionDays = 14
-	}
-	history, err := telemetry.NewSQLiteHistoryWithRetention(
-		db, 2048, time.Hour, 24*time.Hour, time.Duration(retentionDays)*24*time.Hour,
-	)
-	if err != nil {
-		return fmt.Errorf("telemetry history initialization: %w", err)
-	}
-	telemetryCore, err := telemetry.NewCore(nodeIdentity.NodeID, history)
-	if err != nil {
-		_ = history.Close()
-		return fmt.Errorf("telemetry core initialization: %w", err)
-	}
-	if err := telemetryCore.Start(ctx); err != nil {
-		_ = telemetryCore.Close()
-		return fmt.Errorf("telemetry core startup: %w", err)
-	}
-	defer func() {
-		if err := telemetryCore.Close(); err != nil {
-			logger.Error("telemetry shutdown failed", "error", err)
+	var telemetryCore *telemetry.Core
+	if cfg.Monitoring.Enabled {
+		retentionDays := cfg.Monitoring.MetricsRetentionDays
+		if retentionDays <= 0 {
+			retentionDays = 14
 		}
-	}()
+		history, historyErr := telemetry.NewSQLiteHistoryWithRetention(
+			db, 2048, time.Hour, 24*time.Hour, time.Duration(retentionDays)*24*time.Hour,
+		)
+		if historyErr != nil {
+			return fmt.Errorf("telemetry history initialization: %w", historyErr)
+		}
+		telemetryCore, err = telemetry.NewCore(nodeIdentity.NodeID, history)
+		if err != nil {
+			_ = history.Close()
+			return fmt.Errorf("telemetry core initialization: %w", err)
+		}
+		if err := telemetryCore.Start(ctx); err != nil {
+			_ = telemetryCore.Close()
+			return fmt.Errorf("telemetry core startup: %w", err)
+		}
+		defer func() {
+			if err := telemetryCore.Close(); err != nil {
+				logger.Error("telemetry shutdown failed", "error", err)
+			}
+		}()
+	}
 
 	ws := wsserver.New(cfg, db, logger, storageManager)
 	ws.SetLocalNodeID(nodeIdentity.NodeID)
-	if err := ws.SetTelemetryCore(telemetryCore); err != nil {
-		return fmt.Errorf("telemetry command registration: %w", err)
+	if telemetryCore != nil {
+		if err := ws.SetTelemetryCore(telemetryCore); err != nil {
+			return fmt.Errorf("telemetry command registration: %w", err)
+		}
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(cfg.Server.WebSocketPath, ws.Handle)
