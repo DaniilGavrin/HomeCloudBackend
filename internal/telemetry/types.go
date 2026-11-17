@@ -70,6 +70,12 @@ type History interface {
 	Close() error
 }
 
+// HistoryStatsProvider exposes bounded-writer diagnostics without coupling Core
+// to a particular persistence implementation.
+type HistoryStatsProvider interface {
+	HistoryStats() map[string]uint64
+}
+
 type Query struct {
 	NodeID     string
 	Metric     string
