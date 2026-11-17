@@ -114,13 +114,18 @@ func (c *NetworkKernelCollector) Collect(ctx context.Context) ([]Sample,error) {
 	for _,path:=range interfaces{
 		if err:=ctx.Err();err!=nil{return out,err}
 		iface:=filepath.Base(path); labels:=map[string]string{"interface":iface}
-		for _,field:=range []string{"rx_compressed","tx_compressed","multicast","collisions","rx_fifo_errors","tx_fifo_errors","rx_frame_errors","rx_length_errors","rx_crc_errors","rx_missed_errors","rx_over_errors","tx_carrier_errors","tx_aborted_errors","tx_window_errors","tx_heartbeat_errors"}{
-			raw,e:=os.ReadFile(filepath.Join(path,"statistics",field));if e!=nil{continue}
+		// Discover every numeric interface statistic exported by the running kernel.
+		// This automatically includes newer driver/kernel counters without code changes.
+		statPaths, _ := filepath.Glob(filepath.Join(path,"statistics","*"))
+		for _, statPath := range statPaths {
+			field := filepath.Base(statPath)
+			raw,e:=os.ReadFile(statPath);if e!=nil{continue}
 			value,e:=strconv.ParseUint(strings.TrimSpace(string(raw)),10,64);if e!=nil{continue}
-			metric:="network.interface."+strings.TrimSuffix(field,"_errors")
-			if strings.HasSuffix(field,"_errors"){metric="network.interface."+strings.TrimSuffix(field,"_errors")+"_errors"}
-			c.appendCounter(&out,"if:"+iface+":"+field,metric,labels,value,now)
+			labelsWithCounter:=map[string]string{"interface":iface,"counter":field}
+			metric:="network.interface.counter"
+			c.appendCounter(&out,"if:"+iface+":"+field,metric,labelsWithCounter,value,now)
 		}
+
 		for _,field:=range []string{"mtu","tx_queue_len","speed","carrier"}{
 			raw,e:=os.ReadFile(filepath.Join(path,field));if e!=nil{continue}
 			value,e:=strconv.ParseInt(strings.TrimSpace(string(raw)),10,64);if e!=nil||value<0{continue}
