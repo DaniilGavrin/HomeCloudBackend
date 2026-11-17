@@ -67,6 +67,9 @@ func (c *Core) Start(parent context.Context) error {
 	if c.started {
 		return errors.New("telemetry core already started")
 	}
+	if parent == nil {
+		return errors.New("telemetry parent context is nil")
+	}
 	ctx, cancel := context.WithCancel(parent)
 	c.cancel = cancel
 	c.started = true
@@ -119,7 +122,7 @@ func (c *Core) collect(parent context.Context, collector Collector, interval tim
 			samples[i].NodeID = c.nodeID
 		}
 		if math.IsNaN(samples[i].Value) || math.IsInf(samples[i].Value, 0) {
-			samples[i].Value = 0
+			samples[i].Name = ""
 			c.collectErrors.Add(1)
 			continue
 		}
