@@ -22,6 +22,7 @@ import (
 // must not import wsserver or touch sockets directly.
 type Dependencies struct {
 	Online              func() int
+	NodeID              func() string
 	ConnectedDevices    func() []map[string]string
 	DeviceList          func(context.Context) ([]devicestore.Record, error)
 	DeviceRename        func(context.Context, string, string) (devicestore.Record, error)
@@ -50,6 +51,7 @@ type Dependencies struct {
 func Register(r *commands.Registry, d Dependencies) {
 	system.Register(r, system.Dependencies{
 		Online:              d.Online,
+		NodeID:              d.NodeID,
 		RequireSubscription: d.RequireSubscription,
 	})
 	clients.Register(r, clients.Dependencies{Connected: d.ConnectedDevices, QueueToDevice: d.QueueToDevice})
