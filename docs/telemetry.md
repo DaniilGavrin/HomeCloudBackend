@@ -21,7 +21,7 @@ The `hc_metric_samples` table stores three resolutions:
 | --- | --- | --- |
 | 1 second | 1 hour | Recent detail |
 | 10 seconds | 24 hours | Intraday charts |
-| 1 minute | `monitoring.metrics_retention_days` (default 14 days) | Long-range charts |
+| 1 minute | `monitoring.metrics_retention_days` (default 14 days, configurable 1–14) | Long-range charts |
 
 A background writer batches inserts in transactions. Rollups preserve average,
 minimum, maximum, and sample count. The existing SQLite connection limit remains
