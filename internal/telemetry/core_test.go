@@ -2,8 +2,8 @@ package telemetry
 
 import (
 	"context"
-	"testing"
 	"sync"
+	"testing"
 	"time"
 )
 
@@ -52,7 +52,7 @@ func TestCoreCollectsAndCachesSamples(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(time.Second)
-	for len(core.Latest("node-a", "cpu.usage")) == 0 && time.Now().Before(deadline) {
+	for (len(core.Latest("node-a", "cpu.usage")) == 0 || history.Count() == 0) && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	latest := core.Latest("node-a", "cpu.usage")
