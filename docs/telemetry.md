@@ -134,9 +134,7 @@ walking mounted filesystems. SMART polling is at least 60 seconds and requires `
 
 Metric names use dotted lowercase identifiers. Interface, device, and mountpoint
 labels are stable dimensions; IP addresses, MAC addresses, process arguments, and
-other sensitive/high-cardinality values are not included in these series. The process
-collector stores only an aggregate process count; detailed process listings are
-available on demand through `system.processes`. Service availability is represented as `1` (online)
+other sensitive/high-cardinality values are not included in these series. The process history collector stores aggregate count and bounded top-process series (up to 25 by CPU plus 25 by RSS). Each selected process has CPU, RSS, memory percentage and thread metrics; detailed process listings remain available on demand through `system.processes`. Service availability is represented as `1` (online)
 or `0` (offline), with a `service` label. Disabled Media Gateway is omitted; Storage
 Service metrics are emitted for registered storage nodes.
 
