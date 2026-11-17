@@ -107,11 +107,12 @@ five-second collection deadline and a bounded result size.
 
 ## Built-in host collectors
 
-The Backend registers sixteen collectors when `monitoring.enabled: true`:
+The Backend registers seventeen collectors when `monitoring.enabled: true`:
 
 | Collector | Cadence | Metrics |
 | --- | --- | --- |
 | CPU | `monitoring.sample_interval_seconds` | Total and per-core utilization, user/system/idle/nice/iowait/IRQ/softirq/steal mode percentages; Linux 1/5/15-minute load average |
+| CPU frequency | 5 seconds minimum | Per-core current and maximum frequency plus scaling governor where cpufreq sysfs is available |
 | Memory | `monitoring.sample_interval_seconds` | RAM total/used/available/free, cache/buffers when available, swap and percentages |
 | Network | `monitoring.sample_interval_seconds` | Per-interface RX/TX bytes, packets, errors and drops per second |
 | Network connections | 10 seconds minimum | Aggregate TCP/UDP connection counts by protocol and state; no endpoint addresses or ports are stored |
