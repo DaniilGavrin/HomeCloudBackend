@@ -235,6 +235,11 @@ func (s *Server) SetTelemetryCore(core *telemetry.Core) error {
 			if group != "" {
 				groups[group] = append(groups[group], sample)
 			}
+			// Diagnostics intentionally includes selected details from other
+			// functional groups; these remain available in their primary tab too.
+			if group != "diagnostics" && telemetryDiagnosticMetric(sample.Name) {
+				groups["diagnostics"] = append(groups["diagnostics"], sample)
+			}
 			if telemetryOverviewMetric(sample.Name) {
 				overview = append(overview, sample)
 			}
@@ -275,14 +280,22 @@ func telemetryMetricGroup(name string) string {
 		return "processes"
 	case strings.HasPrefix(name, "services"):
 		return "services"
-	case strings.HasPrefix(name, "gpu"), strings.HasPrefix(name, "sensors"), strings.HasPrefix(name, "fans"):
-		return "hardware"
-	case strings.HasPrefix(name, "pressure"), strings.HasPrefix(name, "linux_kernel"),
-		strings.HasPrefix(name, "backend"), strings.HasPrefix(name, "host"):
+	case strings.HasPrefix(name, "gpu"), strings.HasPrefix(name, "sensors"), strings.HasPrefix(name, "fans"),
+		strings.HasPrefix(name, "pressure"), strings.HasPrefix(name, "linux_kernel"),
+		strings.HasPrefix(name, "backend"), strings.HasPrefix(name, "host"),
+		strings.HasPrefix(name, "system"), strings.HasPrefix(name, "network_kernel"),
+		strings.HasPrefix(name, "network_connections"):
 		return "diagnostics"
 	default:
 		return ""
 	}
+}
+
+func telemetryDiagnosticMetric(name string) bool {
+	return strings.HasPrefix(name, "cpu_frequency.") ||
+		strings.HasPrefix(name, "disk_inventory.") ||
+		strings.HasPrefix(name, "disk_kernel.") ||
+		strings.HasPrefix(name, "smart.")
 }
 
 func telemetryOverviewMetric(name string) bool {
