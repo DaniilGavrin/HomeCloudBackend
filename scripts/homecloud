@@ -181,8 +181,8 @@ update_one() {
 
   [[ -x "$target" ]] || die "Не найден текущий бинарник: $target"
 
-  # Resolve the release digest before creating staging/backup artifacts.
-  # A matching installed binary must leave the host completely untouched.
+  # A matching digest removes this transient staging file and exits before
+  # creating a backup, replacing a binary, or touching any systemd service.
   local temp="" download_rc=0
   temp="$(mktemp "$BIN_DIR/.homecloud-update.XXXXXX")"
   if download_verified "$repo" "$asset" "$temp" "$target"; then
