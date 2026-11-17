@@ -6,8 +6,8 @@ import (
 )
 
 // RegisterHostCollectors attaches the portable host collectors to the core.
-// CPU, memory and network use the configured cadence; disk capacity scans are
-// internally throttled to avoid repeatedly walking mounted filesystems.
+// CPU, memory and network use the configured cadence. Disk, process, sensor and
+// Backend collectors enforce slower minimum intervals on resource-constrained nodes.
 func RegisterHostCollectors(core *Core, interval time.Duration) error {
 	if core == nil {
 		return fmt.Errorf("telemetry core is nil")
