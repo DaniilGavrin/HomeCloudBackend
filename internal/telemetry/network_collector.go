@@ -39,7 +39,9 @@ func (c *NetworkCollector) Collect(ctx context.Context) ([]Sample, error) {
 		if current.Name == "" { continue }
 		prev, ok := c.previous[current.Name]
 		if ok && current.BytesRecv >= prev.rxBytes && current.BytesSent >= prev.txBytes &&
-			current.PacketsRecv >= prev.rxPackets && current.PacketsSent >= prev.txPackets {
+			current.PacketsRecv >= prev.rxPackets && current.PacketsSent >= prev.txPackets &&
+			current.Errin >= prev.rxErrors && current.Errout >= prev.txErrors &&
+			current.Dropin >= prev.rxDrops && current.Dropout >= prev.txDrops {
 			seconds := now.Sub(prev.at).Seconds()
 			if seconds > 0 {
 				labels := map[string]string{"interface":current.Name}
