@@ -88,8 +88,8 @@ Queries are limited to 14 days and 20,000 points.
 
 `system.processes` returns an on-demand process table, sorted by resident memory
 by default. The request accepts `limit` (1–200, default 50) and `sort_by`
-(`memory`, `pid`, or `name`). It includes PID, process name, state, RSS, memory
-percentage, thread count, and start time. Command lines, environment variables,
+(`memory`, `cpu`, `pid`, or `name`). It includes PID, process name, state, RSS,
+memory percentage, sampled CPU percentage, thread count, and start time. Command lines, environment variables,
 and file descriptors are never returned.
 
 ```json
@@ -102,7 +102,8 @@ and file descriptors are never returned.
 }
 ```
 
-The command has a five-second collection deadline and a bounded result size.
+CPU percentage is measured over a short 200 ms sampling window. The command has a
+five-second collection deadline and a bounded result size.
 
 ## Built-in host collectors
 
