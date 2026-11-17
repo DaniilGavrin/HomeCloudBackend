@@ -112,6 +112,9 @@ func TestCoreExpiresStaleLatestSeries(t *testing.T) {
 		NodeID:"node-a", Name:"network.receive_bytes_per_second",
 		Timestamp:time.Now().Add(-11*time.Minute),
 	}
+	if got := core.Latest("node-a", "network.receive_bytes_per_second"); len(got) != 0 {
+		t.Fatalf("stale metric was returned by Latest: %#v", got)
+	}
 	core.collect(context.Background(), testCollector{samples:[]Sample{{
 		Name:"cpu.usage_percent", Value:1, Timestamp:time.Now().UTC(),
 	}}}, time.Second)
