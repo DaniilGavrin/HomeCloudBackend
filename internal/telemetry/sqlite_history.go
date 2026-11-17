@@ -268,20 +268,21 @@ GROUP BY node_id,metric,labels_json,unit`, tenResolution, tenStart, rawResolutio
 		return err
 	}
 
-	if tenEnd%minResolution == 0 {
-		minStart := tenEnd - minResolution
-		_, err = tx.ExecContext(ctx, `
+	// Rebuild the most recently completed minute on every compaction pass.
+	// This also retries a minute rollup if SQLite was temporarily busy at its boundary.
+	minEnd := nowMS / minResolution * minResolution
+	minStart := minEnd - minResolution
+	_, err = tx.ExecContext(ctx, `
 INSERT OR REPLACE INTO hc_metric_samples
 (node_id,metric,labels_json,resolution_ms,timestamp_ms,value,min_value,max_value,sample_count,unit)
 SELECT node_id,metric,labels_json,?, ?, SUM(value*sample_count)/MAX(SUM(sample_count),1),
  MIN(min_value),MAX(max_value),SUM(sample_count),unit
 FROM hc_metric_samples
 WHERE resolution_ms=? AND timestamp_ms>=? AND timestamp_ms<?
-GROUP BY node_id,metric,labels_json,unit`, minResolution, minStart, tenResolution, minStart, tenEnd)
-		if err != nil {
-			_ = tx.Rollback()
-			return err
-		}
+GROUP BY node_id,metric,labels_json,unit`, minResolution, minStart, tenResolution, minStart, minEnd)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
 	}
 
 	_, err = tx.ExecContext(ctx, `
