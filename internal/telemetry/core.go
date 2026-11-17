@@ -23,6 +23,7 @@ type Core struct {
 	wg        sync.WaitGroup
 	dropped   atomic.Uint64
 	collectErrors atomic.Uint64
+	observer func([]Sample)
 }
 
 func NewCore(nodeID string, history History) (*Core, error) {
@@ -55,6 +56,18 @@ func (c *Core) Register(collector Collector) error {
 		return fmt.Errorf("collector %q is already registered", collector.Name())
 	}
 	c.collectors[collector.Name()] = collector
+	return nil
+}
+
+// SetObserver installs a non-blocking transport hook before Start. The
+// callback receives an owned sample slice and is always invoked without Core locks.
+func (c *Core) SetObserver(observer func([]Sample)) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed || c.started {
+		return ErrClosed
+	}
+	c.observer = observer
 	return nil
 }
 
@@ -152,7 +165,16 @@ func (c *Core) collect(parent context.Context, collector Collector, interval tim
 		key := sampleKey(sample)
 		c.latest[key] = sample
 	}
+	observer := c.observer
 	c.mu.Unlock()
+	if observer != nil {
+		observed := make([]Sample, len(valid))
+		copy(observed, valid)
+		for i := range observed {
+			observed[i].Labels = cloneLabels(observed[i].Labels)
+		}
+		observer(observed)
+	}
 	if err := c.history.Append(parent, valid); err != nil {
 		c.dropped.Add(uint64(len(valid)))
 	}
