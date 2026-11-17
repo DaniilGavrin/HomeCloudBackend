@@ -216,19 +216,82 @@ func (s *Server) SetTelemetryCore(core *telemetry.Core) error {
 		return errors.New("telemetry core is unavailable")
 	}
 	if err := core.SetObserver(func(samples []telemetry.Sample) {
-		ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
-		_, err := s.PublishEvent(ctx, "system.metrics", map[string]any{
-			"samples": samples,
-			"collected_at": time.Now().UTC().Format(time.RFC3339Nano),
-		})
-		if err != nil && s.log != nil {
+		collectedAt := time.Now().UTC().Format(time.RFC3339Nano)
+
+		// Keep the v1 aggregate topic for existing clients. New clients should
+		// subscribe to one category topic and receive only that category's delta.
+		if _, err := s.PublishEvent(ctx, "system.metrics", map[string]any{
+			"samples": samples, "collected_at": collectedAt,
+		}); err != nil && s.log != nil {
 			s.log.Warn("publish telemetry sample event failed", "error", err)
+		}
+
+		groups := make(map[string][]telemetry.Sample, 8)
+		overview := make([]telemetry.Sample, 0, 8)
+		for _, sample := range samples {
+			group := telemetryMetricGroup(sample.Name)
+			if group != "" {
+				groups[group] = append(groups[group], sample)
+			}
+			if telemetryOverviewMetric(sample.Name) {
+				overview = append(overview, sample)
+			}
+		}
+		for group, batch := range groups {
+			if _, err := s.PublishEvent(ctx, "system.metrics."+group, map[string]any{
+				"samples": batch, "collected_at": collectedAt,
+			}); err != nil && s.log != nil {
+				s.log.Warn("publish grouped telemetry event failed", "group", group, "error", err)
+			}
+		}
+		if len(overview) > 0 {
+			if _, err := s.PublishEvent(ctx, "system.metrics.overview", map[string]any{
+				"samples": overview, "collected_at": collectedAt,
+			}); err != nil && s.log != nil {
+				s.log.Warn("publish overview telemetry event failed", "error", err)
+			}
 		}
 	}); err != nil {
 		return err
 	}
 	return system.RegisterTelemetry(s.registry, core, s.cfg.MessageBus.RequireSubscription)
+}
+
+// telemetryMetricGroup maps metric namespaces to independently subscribable
+// live streams. Unknown namespaces remain available on the legacy aggregate topic.
+func telemetryMetricGroup(name string) string {
+	switch {
+	case strings.HasPrefix(name, "cpu"), strings.HasPrefix(name, "cpu_frequency"):
+		return "cpu"
+	case strings.HasPrefix(name, "memory"):
+		return "memory"
+	case strings.HasPrefix(name, "disk"), strings.HasPrefix(name, "smart"):
+		return "disks"
+	case strings.HasPrefix(name, "network"):
+		return "network"
+	case strings.HasPrefix(name, "process"):
+		return "processes"
+	case strings.HasPrefix(name, "services"):
+		return "services"
+	case strings.HasPrefix(name, "gpu"), strings.HasPrefix(name, "sensors"), strings.HasPrefix(name, "fans"):
+		return "hardware"
+	case strings.HasPrefix(name, "pressure"), strings.HasPrefix(name, "linux_kernel"),
+		strings.HasPrefix(name, "backend"), strings.HasPrefix(name, "host"):
+		return "diagnostics"
+	default:
+		return ""
+	}
+}
+
+func telemetryOverviewMetric(name string) bool {
+	switch name {
+	case "cpu.usage_percent", "memory.used_percent", "host.uptime_seconds", "services.available":
+		return true
+	default:
+		return strings.HasPrefix(name, "disk.") && strings.Contains(name, "used_percent")
+	}
 }
 
 // ServiceAvailability returns local HomeCloud service state using existing
