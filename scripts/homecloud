@@ -180,13 +180,11 @@ update_one() {
   esac
 
   [[ -x "$target" ]] || die "Не найден текущий бинарник: $target"
-  temp="$(mktemp "$BIN_DIR/.homecloud-update.XXXXXX")"
-  backup_dir="$BACKUP_ROOT/$(date -u +%Y%m%dT%H%M%SZ)"
-  mkdir -p "$backup_dir"
-  chmod 0700 "$backup_dir"
-  backup="$backup_dir/$(basename "$target")"
 
-  local download_rc=0
+  # Resolve the release digest before creating staging/backup artifacts.
+  # A matching installed binary must leave the host completely untouched.
+  local temp="" download_rc=0
+  temp="$(mktemp "$BIN_DIR/.homecloud-update.XXXXXX")"
   if download_verified "$repo" "$asset" "$temp" "$target"; then
     :
   else
@@ -197,6 +195,11 @@ update_one() {
     fi
     return "$download_rc"
   fi
+
+  backup_dir="$BACKUP_ROOT/$(date -u +%Y%m%dT%H%M%SZ)"
+  mkdir -p "$backup_dir"
+  chmod 0700 "$backup_dir"
+  backup="$backup_dir/$(basename "$target")"
   install -m 0755 "$target" "$backup"
   log "Резервная копия: $backup"
 
