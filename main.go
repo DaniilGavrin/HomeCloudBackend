@@ -137,7 +137,13 @@ func run() error {
 			}
 		}
 	}
-	history, err := telemetry.NewSQLiteHistory(db, 2048)
+	retentionDays := cfg.Monitoring.MetricsRetentionDays
+	if retentionDays <= 0 {
+		retentionDays = 14
+	}
+	history, err := telemetry.NewSQLiteHistoryWithRetention(
+		db, 2048, time.Hour, 24*time.Hour, time.Duration(retentionDays)*24*time.Hour,
+	)
 	if err != nil {
 		return fmt.Errorf("telemetry history initialization: %w", err)
 	}
