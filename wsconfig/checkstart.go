@@ -258,8 +258,8 @@ func validateStrictSettings(c *Config) error {
 	if c.Notifications.DeduplicationWindowSeconds < 0 {
 		return errors.New("notifications.deduplication_window_seconds не может быть отрицательным")
 	}
-	if c.Monitoring.SampleIntervalSeconds < 1 || c.Monitoring.MetricsRetentionDays < 0 || c.Monitoring.MetricsRetentionDays > 3650 {
-		return errors.New("monitoring: неверные интервалы")
+	if c.Monitoring.SampleIntervalSeconds < 1 || c.Monitoring.MetricsRetentionDays < 0 || c.Monitoring.MetricsRetentionDays > 14 {
+		return errors.New("monitoring: sample_interval_seconds должен быть >=1, metrics_retention_days — 0..14")
 	}
 	switch c.Logging.Level {
 	case "debug", "info", "warn", "error":
