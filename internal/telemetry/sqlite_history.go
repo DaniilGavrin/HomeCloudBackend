@@ -193,7 +193,6 @@ func (h *SQLiteHistory) run() {
 	defer pruneTicker.Stop()
 	pending := make([]Sample, 0, writeBatchSize)
 	lastCompactedBucket := int64(-1)
-	hasSamples := false
 	prune := func() {
 		pruneCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		err := h.prune(pruneCtx, time.Now().UTC())
@@ -225,7 +224,6 @@ func (h *SQLiteHistory) run() {
 	for {
 		select {
 		case batch := <-h.queue:
-			hasSamples = true
 			for len(batch) > 0 {
 				space := writeBatchSize - len(pending)
 				if space > len(batch) {
@@ -241,13 +239,12 @@ func (h *SQLiteHistory) run() {
 			flush()
 			now := time.Now().UTC()
 			bucket := now.UnixMilli() / tenResolution
-			if hasSamples && bucket != lastCompactedBucket {
+			if bucket != lastCompactedBucket {
 				compactCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				err := h.compact(compactCtx, now)
 				cancel()
 				if err == nil {
 					lastCompactedBucket = bucket
-					hasSamples = false
 				} else {
 					h.rollupErrors.Add(1)
 				}
