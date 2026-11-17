@@ -71,7 +71,7 @@ func TestCoreCollectsAndCachesSamples(t *testing.T) {
 }
 
 func TestSampleValidationRejectsHighCardinalityLabels(t *testing.T) {
-	sample := Sample{Name: "network.rx", Timestamp: time.Now(), Labels: map[string]string{}}
+	sample := Sample{NodeID: "node-a", Name: "network.rx", Timestamp: time.Now(), Labels: map[string]string{}}
 	for i := 0; i < 17; i++ {
 		sample.Labels[string(rune('a'+i))] = "x"
 	}
