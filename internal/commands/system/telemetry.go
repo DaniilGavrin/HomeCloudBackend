@@ -58,6 +58,11 @@ func RegisterTelemetry(r *commands.Registry, core *telemetry.Core, requireSubscr
 		if request.NodeID == "" || request.Metric == "" {
 			return nil, errors.New("node_id and metric are required")
 		}
+		switch request.ResolutionMS {
+		case 0, 1000, 10000, 60000:
+		default:
+			return nil, errors.New("resolution_ms must be 0, 1000, 10000, or 60000")
+		}
 		from, err := time.Parse(time.RFC3339Nano, request.From)
 		if err != nil {
 			return nil, errors.New("from must be RFC3339 timestamp")
