@@ -308,6 +308,15 @@ GROUP BY node_id,metric,labels_json,unit`, minResolution, minStart, tenResolutio
 		return err
 	}
 
+	return tx.Commit()
+}
+
+func (h *SQLiteHistory) prune(ctx context.Context, now time.Time) error {
+	tx, err := h.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	nowMS := now.UnixMilli()
 	_, err = tx.ExecContext(ctx, `
 DELETE FROM hc_metric_samples
 WHERE (resolution_ms=? AND timestamp_ms<?)
