@@ -9,6 +9,7 @@ import (
 	"sort"
 	"sync"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -30,6 +31,10 @@ type SQLiteHistory struct {
 	rawRetention time.Duration
 	tenRetention time.Duration
 	minuteRetention time.Duration
+	writeErrors atomic.Uint64
+	droppedSamples atomic.Uint64
+	rollupErrors atomic.Uint64
+	retentionErrors atomic.Uint64
 }
 
 func InitSQLiteSchema(ctx context.Context, db *sql.DB) error {
@@ -194,6 +199,7 @@ func (h *SQLiteHistory) run() {
 		err := h.prune(pruneCtx, time.Now().UTC())
 		cancel()
 		if err != nil {
+			h.retentionErrors.Add(1)
 			h.mu.Lock()
 			h.closeErr = errors.Join(h.closeErr, err)
 			h.mu.Unlock()
@@ -204,9 +210,12 @@ func (h *SQLiteHistory) run() {
 			return
 		}
 		writeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		batchSize := len(pending)
 		err := h.writeBatch(writeCtx, pending)
 		cancel()
 		if err != nil {
+			h.writeErrors.Add(1)
+			h.droppedSamples.Add(uint64(batchSize))
 			h.mu.Lock()
 			h.closeErr = errors.Join(h.closeErr, err)
 			h.mu.Unlock()
@@ -239,6 +248,8 @@ func (h *SQLiteHistory) run() {
 				if err == nil {
 					lastCompactedBucket = bucket
 					hasSamples = false
+				} else {
+					h.rollupErrors.Add(1)
 				}
 			}
 		case <-pruneTicker.C:
@@ -360,6 +371,15 @@ WHERE (resolution_ms=? AND timestamp_ms<?)
 		return err
 	}
 	return tx.Commit()
+}
+
+func (h *SQLiteHistory) HistoryStats() map[string]uint64 {
+	return map[string]uint64{
+		"history_write_errors": h.writeErrors.Load(),
+		"history_dropped_samples": h.droppedSamples.Load(),
+		"history_rollup_errors": h.rollupErrors.Load(),
+		"history_retention_errors": h.retentionErrors.Load(),
+	}
 }
 
 func (h *SQLiteHistory) Close() error {
