@@ -137,6 +137,9 @@ func run() error {
 			}
 		}
 	}
+	ws := wsserver.New(cfg, db, logger, storageManager)
+	ws.SetLocalNodeID(nodeIdentity.NodeID)
+
 	var telemetryCore *telemetry.Core
 	if cfg.Monitoring.Enabled {
 		retentionDays := cfg.Monitoring.MetricsRetentionDays
@@ -159,9 +162,13 @@ func run() error {
 			_ = telemetryCore.Close()
 			return fmt.Errorf("host telemetry collector registration: %w", err)
 		}
+		if err := telemetryCore.Register(telemetry.NewServiceCollector(ws.ServiceAvailability)); err != nil {
+			_ = telemetryCore.Close()
+			return fmt.Errorf("service telemetry collector registration: %w", err)
+		}
 		logger.Info("host telemetry collectors registered",
 			"sample_interval_seconds", sampleInterval.Seconds(),
-			"collectors", []string{"cpu", "memory", "network", "disk"})
+			"collectors", []string{"cpu", "memory", "network", "disk", "processes", "sensors", "backend", "host", "services"})
 		if err := telemetryCore.Start(ctx); err != nil {
 			_ = telemetryCore.Close()
 			return fmt.Errorf("telemetry core startup: %w", err)
@@ -173,8 +180,6 @@ func run() error {
 		}()
 	}
 
-	ws := wsserver.New(cfg, db, logger, storageManager)
-	ws.SetLocalNodeID(nodeIdentity.NodeID)
 	if telemetryCore != nil {
 		if err := ws.SetTelemetryCore(telemetryCore); err != nil {
 			return fmt.Errorf("telemetry command registration: %w", err)
