@@ -234,13 +234,16 @@ func (s *Server) SetTelemetryCore(core *telemetry.Core) error {
 // ServiceAvailability returns local HomeCloud service state using existing
 // Gateway and Storage Service session registries. It contains no credentials.
 func (s *Server) ServiceAvailability() map[string]bool {
-	states := map[string]bool{"backend": true}
+	states := map[string]bool{"backend": true, "storage_service": false}
 	if s.cfg.MediaGateway.Enabled {
 		_, online := s.gateways.Get()
 		states["media_gateway"] = online
 	}
 	for _, entry := range s.storageAgents.Status() {
 		states["storage_service:"+entry.NodeID] = entry.Online
+		if entry.Online {
+			states["storage_service"] = true
+		}
 	}
 	return states
 }
