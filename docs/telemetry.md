@@ -113,7 +113,7 @@ The Backend registers four collectors when `monitoring.enabled: true`:
 | CPU | `monitoring.sample_interval_seconds` | Total and per-core utilization; Linux 1/5/15-minute load average |
 | Memory | `monitoring.sample_interval_seconds` | RAM total/used/available/free, cache/buffers when available, swap and percentages |
 | Network | `monitoring.sample_interval_seconds` | Per-interface RX/TX bytes, packets, errors and drops per second |
-| Disk | 5 seconds minimum | Per-device read/write throughput and IOPS; filesystem capacity and inode usage every 30 seconds |
+| Disk | 5 seconds minimum | Per-device read/write throughput and IOPS; filesystem capacity and inode usage (scan throttled to 30 seconds) |
 | Processes | 5 seconds minimum | Total process count |
 | Hardware sensors | 5 seconds minimum | Temperature, high and critical thresholds where Linux exposes sensors |
 | Backend | 5 seconds minimum | Goroutines, Go heap, allocations, GC cycles, process RSS/VMS and threads |
