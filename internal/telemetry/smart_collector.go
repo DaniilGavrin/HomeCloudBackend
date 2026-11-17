@@ -72,6 +72,7 @@ func (c *SMARTCollector) Collect(ctx context.Context) ([]Sample, error) {
 					case "reallocated_sector_ct": appendMetric("disk.smart.reallocated_sectors", value, "sectors")
 					case "current_pending_sector": appendMetric("disk.smart.pending_sectors", value, "sectors")
 					case "offline_uncorrectable": appendMetric("disk.smart.uncorrectable_sectors", value, "sectors")
+					case "temperature_celsius", "airflow_temperature_cel": appendMetric("disk.smart.temperature_celsius", value, "celsius")
 					}
 				}
 			}
