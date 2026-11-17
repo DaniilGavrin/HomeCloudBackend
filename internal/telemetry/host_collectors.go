@@ -28,6 +28,7 @@ func RegisterHostCollectors(core *Core, interval time.Duration) error {
 		NewFanCollector(interval),
 		NewGPUCollector(interval),
 		NewPressureCollector(interval),
+		NewLinuxKernelCollector(interval),
 		NewNetworkConnectionsCollector(interval),
 		NewSMARTCollector(interval),
 	}
