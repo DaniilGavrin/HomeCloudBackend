@@ -84,6 +84,26 @@ Supported resolutions are 1000, 10000, and 60000 milliseconds. If omitted,
 the history layer selects a resolution based on the requested time range.
 Queries are limited to 14 days and 20,000 points.
 
+## Process inventory command
+
+`system.processes` returns an on-demand process table, sorted by resident memory
+by default. The request accepts `limit` (1–200, default 50) and `sort_by`
+(`memory`, `pid`, or `name`). It includes PID, process name, state, RSS, memory
+percentage, thread count, and start time. Command lines, environment variables,
+and file descriptors are never returned.
+
+```json
+{
+  "v": 1,
+  "id": "process-list-1",
+  "type": "command",
+  "action": "system.processes",
+  "data": { "limit": 50, "sort_by": "memory" }
+}
+```
+
+The command has a five-second collection deadline and a bounded result size.
+
 ## Built-in host collectors
 
 The Backend registers four collectors when `monitoring.enabled: true`:
