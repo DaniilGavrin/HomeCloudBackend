@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"runtime"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/sensors"
@@ -16,6 +17,9 @@ func NewSensorCollector(interval time.Duration) *SensorCollector {
 func (c *SensorCollector) Name() string { return "sensors" }
 func (c *SensorCollector) Interval() time.Duration { return c.interval }
 func (c *SensorCollector) Collect(ctx context.Context) ([]Sample, error) {
+	if runtime.GOOS != "linux" {
+		return nil, nil
+	}
 	temperatures, err := sensors.TemperaturesWithContext(ctx)
 	if err != nil { return nil, err }
 	now := time.Now().UTC()
