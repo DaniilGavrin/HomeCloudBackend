@@ -94,6 +94,7 @@ func New(cfg *wsconfig.Config, db *sql.DB, logger *slog.Logger, storageManagers 
 	})
 	bootstrap.Register(s.registry, bootstrap.Dependencies{
 		Online:              s.clients.Online,
+		NodeID:              func() string { return s.localNodeID },
 		ConnectedDevices:    s.clients.List,
 		DeviceList: func(ctx context.Context) ([]devicestore.Record, error) {
 			if s.deviceStore == nil { return nil, errors.New("реестр устройств недоступен без базы данных") }
