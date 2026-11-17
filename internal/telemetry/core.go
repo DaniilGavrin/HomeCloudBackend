@@ -192,6 +192,9 @@ func (c *Core) Latest(nodeID string, metric string) []Sample {
 	defer c.mu.RUnlock()
 	result := make([]Sample, 0)
 	for _, sample := range c.latest {
+		if time.Since(sample.Timestamp) > latestRetention {
+			continue
+		}
 		if (nodeID == "" || sample.NodeID == nodeID) && (metric == "" || sample.Name == metric) {
 			sample.Labels = cloneLabels(sample.Labels)
 			result = append(result, sample)
