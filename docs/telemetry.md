@@ -107,7 +107,7 @@ five-second collection deadline and a bounded result size.
 
 ## Built-in host collectors
 
-The Backend registers twelve collectors when `monitoring.enabled: true`:
+The Backend registers thirteen collectors when `monitoring.enabled: true`:
 
 | Collector | Cadence | Metrics |
 | --- | --- | --- |
@@ -116,6 +116,7 @@ The Backend registers twelve collectors when `monitoring.enabled: true`:
 | Network | `monitoring.sample_interval_seconds` | Per-interface RX/TX bytes, packets, errors and drops per second |
 | Network connections | 10 seconds minimum | Aggregate TCP/UDP connection counts by protocol and state; no endpoint addresses or ports are stored |
 | Disk | 5 seconds minimum | Per-device read/write throughput, IOPS, average latency and utilization; filesystem capacity and inode usage (scan throttled to 30 seconds) |
+| Physical disk inventory | 5 minutes minimum | Physical block-device capacity, rotational/SSD indicator, vendor and model where Linux sysfs exposes them |
 | Processes | 5 seconds minimum | Total process count and bounded top 25 processes by CPU plus top 25 by RSS, with per-process CPU, RSS, memory percentage and thread history |
 | Hardware sensors | 5 seconds minimum | Temperature, high and critical thresholds where Linux exposes sensors |
 | Fans | 5 seconds minimum | RPM from Linux hwmon fan inputs where available |
