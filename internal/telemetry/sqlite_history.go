@@ -199,9 +199,16 @@ func (h *SQLiteHistory) run() {
 		select {
 		case batch := <-h.queue:
 			hasSamples = true
-			pending = append(pending, batch...)
-			if len(pending) >= writeBatchSize {
-				flush()
+			for len(batch) > 0 {
+				space := writeBatchSize - len(pending)
+				if space > len(batch) {
+					space = len(batch)
+				}
+				pending = append(pending, batch[:space]...)
+				batch = batch[space:]
+				if len(pending) >= writeBatchSize {
+					flush()
+				}
 			}
 		case <-ticker.C:
 			flush()
