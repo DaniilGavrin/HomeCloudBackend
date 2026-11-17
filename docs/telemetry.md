@@ -107,7 +107,7 @@ five-second collection deadline and a bounded result size.
 
 ## Built-in host collectors
 
-The Backend registers fourteen collectors when `monitoring.enabled: true`:
+The Backend registers fifteen collectors when `monitoring.enabled: true`:
 
 | Collector | Cadence | Metrics |
 | --- | --- | --- |
@@ -121,6 +121,7 @@ The Backend registers fourteen collectors when `monitoring.enabled: true`:
 | Hardware sensors | 5 seconds minimum | Temperature, high and critical thresholds where Linux exposes sensors |
 | Fans | 5 seconds minimum | RPM from Linux hwmon fan inputs where available |
 | GPU | 5 seconds minimum | NVIDIA utilization, VRAM, temperature, power and clocks through `nvidia-smi`; AMD DRM utilization and VRAM through sysfs where exposed |
+| Linux pressure | 5 seconds minimum | CPU, memory and I/O Pressure Stall Information (PSI), including some/full stall averages and cumulative time where the kernel exposes it |
 | SMART | 60 seconds minimum | Health pass/fail, supported temperature, NVMe percentage used, power-on hours and selected ATA error counters when `smartmontools` is installed |
 | Backend | 5 seconds minimum | Goroutines, Go heap, allocations, GC cycles, process RSS/VMS and threads |
 | Host | 30 seconds minimum | Uptime and boot timestamp |
