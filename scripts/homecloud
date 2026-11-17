@@ -226,9 +226,15 @@ update_one() {
 }
 
 show_version() {
-  printf 'Backend: '; "$BACKEND_BIN" version 2>/dev/null || printf 'версия не предоставляется\n'
-  printf 'Media Gateway: %s\n' "$GATEWAY_BIN"
-  printf 'Storage Service: %s\n' "$STORAGE_BIN"
+  local binary
+  for binary in "$BACKEND_BIN" "$GATEWAY_BIN" "$STORAGE_BIN"; do
+    if [[ -f "$binary" ]]; then
+      printf '%s  ' "$binary"
+      sha256sum "$binary" | awk '{print $1}'
+    else
+      printf '%s  %s\n' "$binary" "не установлен"
+    fi
+  done
 }
 
 usage() {
@@ -246,16 +252,16 @@ EOF
 }
 
 main() {
-  require_root
-  require_tools
-  check_layout
-
-  # Prevent concurrent manual update runs.
-  exec 9>/run/lock/homecloud-updater.lock
-  flock -n 9 || die "Другой процесс обновления уже выполняется."
-
   case "${1:-}" in
     update)
+      require_root
+      require_tools
+      check_layout
+
+      # Prevent concurrent manual update runs.
+      exec 9>/run/lock/homecloud-updater.lock
+      flock -n 9 || die "Другой процесс обновления уже выполняется."
+
       case "${2:-all}" in
         all)
           update_one backend
