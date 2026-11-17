@@ -20,6 +20,7 @@ func RegisterHostCollectors(core *Core, interval time.Duration) error {
 		NewMemoryCollector(interval),
 		NewNetworkCollector(interval),
 		NewDiskCollector(interval),
+		NewDiskInventoryCollector(interval),
 		NewProcessCollector(interval),
 		NewSensorCollector(interval),
 		NewBackendCollector(interval),
