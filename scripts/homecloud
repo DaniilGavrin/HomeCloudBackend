@@ -89,13 +89,16 @@ PY
 download_verified() {
   local repo="$1" asset="$2" dest="$3" meta url expected tag
   meta="$(mktemp)"
-  if ! release_asset "$repo" "$asset" >"$meta"; then
-    local rc=$?
+  local rc=0
+  if release_asset "$repo" "$asset" >"$meta"; then
+    :
+  else
+    rc=$?
     rm -f "$meta"
     case "$rc" in
-      2) die "В репозитории $repo пока нет опубликованного релиза с $asset." ;;
-      3) die "Для $asset отсутствует SHA-256 в метаданных релиза; обновление отменено." ;;
-      *) die "Не удалось получить список релизов $repo." ;;
+      2) log "В репозитории $repo пока нет релиза с $asset."; return 2 ;;
+      3) log "Для $asset отсутствует SHA-256; обновление отменено."; return 3 ;;
+      *) log "Не удалось получить список релизов $repo."; return 1 ;;
     esac
   fi
   mapfile -t fields < "$meta"
@@ -161,7 +164,14 @@ update_one() {
   chmod 0700 "$backup_dir"
   backup="$backup_dir/$(basename "$target")"
 
-  if ! download_verified "$repo" "$asset" "$temp"; then rm -f "$temp"; return 1; fi
+  local download_rc=0
+  if download_verified "$repo" "$asset" "$temp"; then
+    :
+  else
+    download_rc=$?
+    rm -f "$temp"
+    return "$download_rc"
+  fi
   install -m 0755 "$target" "$backup"
   log "Резервная копия: $backup"
 
@@ -240,10 +250,17 @@ main() {
           update_one media
           # Storage releases are not published yet. Treat absence as a skip,
           # but never silently skip an actual download/checksum/install error.
-          update_one storage || {
-            log "Storage Service не обновлён. Проверь наличие его GitHub Release."
-            return 1
-          }
+          local storage_rc=0
+          if update_one storage; then
+            :
+          else
+            storage_rc=$?
+            if [[ "$storage_rc" -eq 2 ]]; then
+              log "Storage Service пропущен: в его репозитории пока нет опубликованного релиза."
+            else
+              return "$storage_rc"
+            fi
+          fi
           ;;
         backend|media|gateway|storage) update_one "$2" ;;
         *) usage; exit 2 ;;
