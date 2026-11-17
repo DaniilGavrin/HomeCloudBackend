@@ -87,7 +87,7 @@ func RegisterProcessList(r *commands.Registry, requireSubscription bool) {
 			byPID := make(map[int32]*process.Process, len(all))
 			for _, p := range all {
 				byPID[p.Pid] = p
-				_, _ = p.PercentWithContext(ctx)
+				_, _ = p.PercentWithContext(ctx, 0)
 			}
 			timer := time.NewTimer(200 * time.Millisecond)
 			select {
@@ -105,7 +105,7 @@ func RegisterProcessList(r *commands.Registry, requireSubscription bool) {
 					break
 				}
 				if p := byPID[items[i].PID]; p != nil {
-					if value, err := p.PercentWithContext(ctx); err == nil {
+					if value, err := p.PercentWithContext(ctx, 0); err == nil {
 						items[i].CPUPercent = value
 					}
 				}
