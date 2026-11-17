@@ -20,8 +20,8 @@ type metricsQueryRequest struct {
 }
 
 // RegisterTelemetry exposes the core's latest cache and historical time-series
-// through the existing command protocol. Streaming subscriptions are added by
-// the transport integration in a later phase.
+// through the existing command protocol. Live batches are published by the
+// transport observer on the exact system.metrics event topic.
 func RegisterTelemetry(r *commands.Registry, core *telemetry.Core, requireSubscription bool) error {
 	if core == nil {
 		return errors.New("telemetry core is unavailable")
