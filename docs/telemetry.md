@@ -98,6 +98,7 @@ The Backend registers four collectors when `monitoring.enabled: true`:
 | Hardware sensors | 5 seconds minimum | Temperature, high and critical thresholds where Linux exposes sensors |
 | Backend | 5 seconds minimum | Goroutines, Go heap, allocations, GC cycles, process RSS/VMS and threads |
 | Host | 30 seconds minimum | Uptime and boot timestamp |
+| Services | 5 seconds | Backend, connected Media Gateway and registered Storage Service nodes availability |
 
 The generated configuration defaults to a one-second sample interval. It can be
 adjusted from 1 to 60 seconds. Disk IO is deliberately sampled no faster than every
@@ -108,7 +109,9 @@ Metric names use dotted lowercase identifiers. Interface, device, and mountpoint
 labels are stable dimensions; IP addresses, MAC addresses, process arguments, and
 other sensitive/high-cardinality values are not included in these series. The process
 collector stores only an aggregate process count; detailed process listings will be
-provided separately on demand.
+provided separately on demand. Service availability is represented as `1` (online)
+or `0` (offline), with a `service` label. Disabled Media Gateway is omitted; Storage
+Service metrics are emitted for registered storage nodes.
 
 For live updates, subscribe to the exact `system.metrics` event topic. The Backend
 publishes each collector batch through the existing session-scoped Event Bus. No
