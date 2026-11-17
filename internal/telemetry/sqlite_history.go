@@ -180,6 +180,7 @@ func (h *SQLiteHistory) run() {
 	defer ticker.Stop()
 	pending := make([]Sample, 0, writeBatchSize)
 	lastCompactedBucket := int64(-1)
+	hasSamples := false
 	flush := func() {
 		if len(pending) == 0 {
 			return
@@ -197,6 +198,7 @@ func (h *SQLiteHistory) run() {
 	for {
 		select {
 		case batch := <-h.queue:
+			hasSamples = true
 			pending = append(pending, batch...)
 			if len(pending) >= writeBatchSize {
 				flush()
@@ -205,12 +207,13 @@ func (h *SQLiteHistory) run() {
 			flush()
 			now := time.Now().UTC()
 			bucket := now.UnixMilli() / tenResolution
-			if bucket != lastCompactedBucket {
+			if hasSamples && bucket != lastCompactedBucket {
 				compactCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				err := h.compact(compactCtx, now)
 				cancel()
 				if err == nil {
 					lastCompactedBucket = bucket
+					hasSamples = false
 				}
 			}
 		case <-h.stop:
