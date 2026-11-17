@@ -17,6 +17,7 @@ func RegisterHostCollectors(core *Core, interval time.Duration) error {
 	}
 	collectors := []Collector{
 		NewCPUCollector(interval),
+		NewCPUFrequencyCollector(interval),
 		NewMemoryCollector(interval),
 		NewNetworkCollector(interval),
 		NewDiskCollector(interval),
