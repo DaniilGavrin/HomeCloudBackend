@@ -31,16 +31,25 @@ func RegisterTelemetry(r *commands.Registry, core *telemetry.Core, requireSubscr
 			return nil, errors.New("subscribe to system.metrics first")
 		}
 		var request struct {
-			NodeID string `json:"node_id"`
-			Metric string `json:"metric"`
+			NodeID   string   `json:"node_id"`
+			Metric   string   `json:"metric"`
+			Prefixes []string `json:"prefixes,omitempty"`
 		}
 		if len(msg.Data) > 0 {
 			if err := json.Unmarshal(msg.Data, &request); err != nil {
 				return nil, errors.New("invalid metrics.latest data")
 			}
 		}
+		if len(request.Prefixes) > 16 {
+			return nil, errors.New("at most 16 metric prefixes are allowed")
+		}
+		for _, prefix := range request.Prefixes {
+			if len(prefix) == 0 || len(prefix) > 64 {
+				return nil, errors.New("metric prefixes must contain 1 to 64 characters")
+			}
+		}
 		return map[string]any{
-			"samples": core.Latest(request.NodeID, request.Metric),
+			"samples": core.LatestFiltered(request.NodeID, request.Metric, request.Prefixes),
 			"stats": core.Stats(),
 			"server_time": time.Now().UTC().Format(time.RFC3339Nano),
 		}, nil
