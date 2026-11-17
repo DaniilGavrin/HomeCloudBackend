@@ -104,3 +104,19 @@ func TestCoreObserverReceivesCollectedSamples(t *testing.T) {
 	cancel()
 	if err := core.Close(); err != nil { t.Fatal(err) }
 }
+
+func TestCoreExpiresStaleLatestSeries(t *testing.T) {
+	core, err := NewCore("node-a", &testHistory{})
+	if err != nil { t.Fatal(err) }
+	core.latest["stale"] = Sample{
+		NodeID:"node-a", Name:"network.receive_bytes_per_second",
+		Timestamp:time.Now().Add(-11*time.Minute),
+	}
+	core.collect(context.Background(), testCollector{samples:[]Sample{{
+		Name:"cpu.usage_percent", Value:1, Timestamp:time.Now().UTC(),
+	}}}, time.Second)
+	if _, exists := core.latest["stale"]; exists {
+		t.Fatal("stale metric remained in latest cache")
+	}
+	if err := core.Close(); err != nil { t.Fatal(err) }
+}
