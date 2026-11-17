@@ -83,8 +83,25 @@ Supported resolutions are 1000, 10000, and 60000 milliseconds. If omitted,
 the history layer selects a resolution based on the requested time range.
 Queries are limited to 14 days and 20,000 points.
 
-## Current scope
+## Built-in host collectors
 
-This phase provides the collector contract, scheduler, latest-value cache,
-asynchronous SQLite history, retention/rollup worker, and read commands. Hardware
-collectors and live event streaming are subsequent phases.
+The Backend registers four collectors when `monitoring.enabled: true`:
+
+| Collector | Cadence | Metrics |
+| --- | --- | --- |
+| CPU | `monitoring.sample_interval_seconds` | Total and per-core utilization; Linux 1/5/15-minute load average |
+| Memory | `monitoring.sample_interval_seconds` | RAM total/used/available/free, cache/buffers when available, swap and percentages |
+| Network | `monitoring.sample_interval_seconds` | Per-interface RX/TX bytes, packets, errors and drops per second |
+| Disk | 5 seconds minimum | Per-device read/write throughput and IOPS; filesystem capacity and inode usage every 30 seconds |
+
+The default sample interval in the generated configuration is 30 seconds. Set it to
+`1` for Netdata-like CPU, memory and network sampling. Disk IO is deliberately
+sampled no faster than every five seconds, while filesystem capacity scans are
+throttled to 30 seconds to avoid repeatedly walking mounted filesystems.
+
+Metric names use dotted lowercase identifiers. Interface, device, and mountpoint
+labels are stable dimensions; IP addresses, MAC addresses, process arguments, and
+other sensitive/high-cardinality values are not included in these series.
+
+Live event streaming is not part of this stage; clients can currently poll latest
+values or query persisted time-series through the WebSocket commands above.
