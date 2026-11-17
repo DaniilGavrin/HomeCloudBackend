@@ -20,6 +20,9 @@ func RegisterHostCollectors(core *Core, interval time.Duration) error {
 		NewMemoryCollector(interval),
 		NewNetworkCollector(interval),
 		NewDiskCollector(interval),
+		NewProcessCollector(interval),
+		NewSensorCollector(interval),
+		NewBackendCollector(interval),
 	}
 	for _, collector := range collectors {
 		if err := core.Register(collector); err != nil {
