@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"errors"
+	"math"
 	"time"
 )
 
@@ -18,6 +19,9 @@ type Sample struct {
 }
 
 func (s Sample) Validate() error {
+	if math.IsNaN(s.Value) || math.IsInf(s.Value, 0) {
+		return errors.New("metric value must be finite")
+	}
 	if s.Name == "" {
 		return errors.New("metric name is required")
 	}
