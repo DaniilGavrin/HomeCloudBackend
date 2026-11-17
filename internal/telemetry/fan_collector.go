@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -29,7 +30,7 @@ func (c *FanCollector) Collect(ctx context.Context) ([]Sample, error) {
 		raw, err := os.ReadFile(path)
 		if err != nil { continue }
 		rpm, err := strconv.ParseFloat(strings.TrimSpace(string(raw)), 64)
-		if err != nil || rpm < 0 { continue }
+		if err != nil || rpm < 0 || math.IsNaN(rpm) || math.IsInf(rpm, 0) { continue }
 		dir := filepath.Dir(path)
 		device := "hwmon"
 		if name, readErr := os.ReadFile(filepath.Join(dir, "name")); readErr == nil {
