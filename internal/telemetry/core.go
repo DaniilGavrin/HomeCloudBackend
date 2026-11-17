@@ -204,10 +204,16 @@ func (c *Core) Query(ctx context.Context, query Query) ([]Point, error) {
 }
 
 func (c *Core) Stats() map[string]uint64 {
-	return map[string]uint64{
+	stats := map[string]uint64{
 		"dropped_samples": c.dropped.Load(),
 		"collection_errors": c.collectErrors.Load(),
 	}
+	if provider, ok := c.history.(HistoryStatsProvider); ok {
+		for key, value := range provider.HistoryStats() {
+			stats[key] = value
+		}
+	}
+	return stats
 }
 
 func (c *Core) Close() error {
