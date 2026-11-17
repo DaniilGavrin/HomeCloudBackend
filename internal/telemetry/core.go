@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -188,6 +189,12 @@ func (c *Core) collect(parent context.Context, collector Collector, interval tim
 }
 
 func (c *Core) Latest(nodeID string, metric string) []Sample {
+	return c.LatestFiltered(nodeID, metric, nil)
+}
+
+// LatestFiltered returns current samples matching exact metric and/or name prefixes.
+// An empty prefix list preserves the unfiltered v1 behavior.
+func (c *Core) LatestFiltered(nodeID, metric string, prefixes []string) []Sample {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	result := make([]Sample, 0)
@@ -195,10 +202,17 @@ func (c *Core) Latest(nodeID string, metric string) []Sample {
 		if time.Since(sample.Timestamp) > latestRetention {
 			continue
 		}
-		if (nodeID == "" || sample.NodeID == nodeID) && (metric == "" || sample.Name == metric) {
-			sample.Labels = cloneLabels(sample.Labels)
-			result = append(result, sample)
+		if nodeID != "" && sample.NodeID != nodeID { continue }
+		if metric != "" && sample.Name != metric { continue }
+		if len(prefixes) > 0 {
+			matched := false
+			for _, prefix := range prefixes {
+				if strings.HasPrefix(sample.Name, prefix) { matched = true; break }
+			}
+			if !matched { continue }
 		}
+		sample.Labels = cloneLabels(sample.Labels)
+		result = append(result, sample)
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].Name == result[j].Name {

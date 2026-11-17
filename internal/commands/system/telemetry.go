@@ -19,6 +19,14 @@ type metricsQueryRequest struct {
 	Limit        int    `json:"limit,omitempty"`
 }
 
+func subscribedToMetrics(peer commands.ClientContext) bool {
+	if peer.Subscribed("system.metrics") { return true }
+	for _, group := range []string{"overview", "cpu", "memory", "disks", "network", "processes", "services", "diagnostics"} {
+		if peer.Subscribed("system.metrics." + group) { return true }
+	}
+	return false
+}
+
 // RegisterTelemetry exposes the core's latest cache and historical time-series
 // through the existing command protocol. Live batches are published by the
 // transport observer on the exact system.metrics event topic.
@@ -27,20 +35,29 @@ func RegisterTelemetry(r *commands.Registry, core *telemetry.Core, requireSubscr
 		return errors.New("telemetry core is unavailable")
 	}
 	if err := r.Register("system.metrics.latest", func(ctx context.Context, msg commands.Inbound, peer commands.ClientContext) (any, error) {
-		if requireSubscription && !peer.Subscribed("system.metrics") {
+		if requireSubscription && !subscribedToMetrics(peer) {
 			return nil, errors.New("subscribe to system.metrics first")
 		}
 		var request struct {
-			NodeID string `json:"node_id"`
-			Metric string `json:"metric"`
+			NodeID   string   `json:"node_id"`
+			Metric   string   `json:"metric"`
+			Prefixes []string `json:"prefixes,omitempty"`
 		}
 		if len(msg.Data) > 0 {
 			if err := json.Unmarshal(msg.Data, &request); err != nil {
 				return nil, errors.New("invalid metrics.latest data")
 			}
 		}
+		if len(request.Prefixes) > 16 {
+			return nil, errors.New("at most 16 metric prefixes are allowed")
+		}
+		for _, prefix := range request.Prefixes {
+			if len(prefix) == 0 || len(prefix) > 64 {
+				return nil, errors.New("metric prefixes must contain 1 to 64 characters")
+			}
+		}
 		return map[string]any{
-			"samples": core.Latest(request.NodeID, request.Metric),
+			"samples": core.LatestFiltered(request.NodeID, request.Metric, request.Prefixes),
 			"stats": core.Stats(),
 			"server_time": time.Now().UTC().Format(time.RFC3339Nano),
 		}, nil
@@ -48,7 +65,7 @@ func RegisterTelemetry(r *commands.Registry, core *telemetry.Core, requireSubscr
 		return err
 	}
 	return r.Register("system.metrics.query", func(ctx context.Context, msg commands.Inbound, peer commands.ClientContext) (any, error) {
-		if requireSubscription && !peer.Subscribed("system.metrics") {
+		if requireSubscription && !subscribedToMetrics(peer) {
 			return nil, errors.New("subscribe to system.metrics first")
 		}
 		var request metricsQueryRequest

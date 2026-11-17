@@ -70,6 +70,28 @@ func TestCoreCollectsAndCachesSamples(t *testing.T) {
 	}
 }
 
+
+func TestCoreLatestFilteredByPrefixes(t *testing.T) {
+	core, err := NewCore("node-a", &testHistory{})
+	if err != nil { t.Fatal(err) }
+	now := time.Now().UTC()
+	core.latest["cpu"] = Sample{NodeID:"node-a", Name:"cpu.usage_percent", Value:25, Timestamp:now}
+	core.latest["memory"] = Sample{NodeID:"node-a", Name:"memory.used_percent", Value:60, Timestamp:now}
+	core.latest["disk"] = Sample{NodeID:"node-a", Name:"disk.used_percent", Value:70, Timestamp:now}
+
+	got := core.LatestFiltered("node-a", "", []string{"cpu.", "memory."})
+	if len(got) != 2 {
+		t.Fatalf("expected two filtered samples, got %d: %#v", len(got), got)
+	}
+	if got[0].Name != "cpu.usage_percent" || got[1].Name != "memory.used_percent" {
+		t.Fatalf("unexpected filtered sample names: %#v", got)
+	}
+	if all := core.Latest("node-a", ""); len(all) != 3 {
+		t.Fatalf("legacy Latest behavior changed: got %d samples", len(all))
+	}
+	if err := core.Close(); err != nil { t.Fatal(err) }
+}
+
 func TestSampleValidationRejectsHighCardinalityLabels(t *testing.T) {
 	sample := Sample{NodeID: "node-a", Name: "network.rx", Timestamp: time.Now(), Labels: map[string]string{}}
 	for i := 0; i < 17; i++ {
