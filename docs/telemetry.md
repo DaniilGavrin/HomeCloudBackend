@@ -111,7 +111,7 @@ The Backend registers nine collectors when `monitoring.enabled: true`:
 
 | Collector | Cadence | Metrics |
 | --- | --- | --- |
-| CPU | `monitoring.sample_interval_seconds` | Total and per-core utilization, user/system/idle/iowait/IRQ mode percentages; Linux 1/5/15-minute load average |
+| CPU | `monitoring.sample_interval_seconds` | Total and per-core utilization, user/system/idle/nice/iowait/IRQ/softirq/steal mode percentages; Linux 1/5/15-minute load average |
 | Memory | `monitoring.sample_interval_seconds` | RAM total/used/available/free, cache/buffers when available, swap and percentages |
 | Network | `monitoring.sample_interval_seconds` | Per-interface RX/TX bytes, packets, errors and drops per second |
 | Disk | 5 seconds minimum | Per-device read/write throughput, IOPS, average latency and utilization; filesystem capacity and inode usage (scan throttled to 30 seconds) |
