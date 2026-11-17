@@ -15,6 +15,8 @@ import (
 	"HomeCloudBackend/internal/commands"
 	"HomeCloudBackend/internal/commands/bootstrap"
 	"HomeCloudBackend/internal/connections"
+	"HomeCloudBackend/internal/commands/system"
+	"HomeCloudBackend/internal/telemetry"
 	devicestore "HomeCloudBackend/internal/devices"
 	"HomeCloudBackend/internal/events"
 	"HomeCloudBackend/internal/mediagateway"
@@ -206,6 +208,11 @@ func New(cfg *wsconfig.Config, db *sql.DB, logger *slog.Logger, storageManagers 
 // RegisterCommand registers an application command before serving connections.
 func (s *Server) RegisterCommand(action string, h commands.Handler) error {
 	return s.registry.Register(action, h)
+}
+
+// SetTelemetryCore registers telemetry commands before the server starts serving.
+func (s *Server) SetTelemetryCore(core *telemetry.Core) error {
+	return system.RegisterTelemetry(s.registry, core, s.cfg.MessageBus.RequireSubscription)
 }
 
 // PublishEvent permits future Go modules to broadcast without touching sockets.
