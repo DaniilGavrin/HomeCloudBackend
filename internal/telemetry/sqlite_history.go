@@ -178,9 +178,22 @@ func (h *SQLiteHistory) run() {
 	defer close(h.done)
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	pruneTicker := time.NewTicker(time.Hour)
+	defer pruneTicker.Stop()
 	pending := make([]Sample, 0, writeBatchSize)
 	lastCompactedBucket := int64(-1)
 	hasSamples := false
+	prune := func() {
+		pruneCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := h.prune(pruneCtx, time.Now().UTC())
+		cancel()
+		if err != nil {
+			h.mu.Lock()
+			h.closeErr = errors.Join(h.closeErr, err)
+			h.mu.Unlock()
+		}
+	}
+	prune()
 	flush := func() {
 		if len(pending) == 0 {
 			return
@@ -223,6 +236,8 @@ func (h *SQLiteHistory) run() {
 					hasSamples = false
 				}
 			}
+		case <-pruneTicker.C:
+			prune()
 		case <-h.stop:
 			for {
 				select {
