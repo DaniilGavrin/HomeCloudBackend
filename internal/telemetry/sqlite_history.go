@@ -70,7 +70,7 @@ func NewSQLiteHistoryWithRetention(db *sql.DB, queueSize int, rawRetention, tenR
 		return nil, errors.New("telemetry database is nil")
 	}
 	if queueSize <= 0 {
-		queueSize = 2048
+		queueSize = 256
 	}
 	if rawRetention <= 0 || tenRetention <= 0 || minuteRetention <= 0 {
 		return nil, errors.New("telemetry retention durations must be positive")
