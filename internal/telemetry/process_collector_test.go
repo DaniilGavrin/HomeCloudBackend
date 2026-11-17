@@ -16,6 +16,7 @@ func TestProcessCollectorEmitsBoundedResourceSeries(t *testing.T) {
 	foundCount := false
 	processSeries := 0
 	for _, sample := range samples {
+		sample.NodeID = "node-test" // Core attaches the owning node identity during ingestion.
 		if err := sample.Validate(); err != nil { t.Fatalf("invalid sample %#v: %v", sample, err) }
 		if sample.Name == "processes.count" { foundCount = true }
 		if sample.Name == "process.cpu.usage_percent" { processSeries++ }
