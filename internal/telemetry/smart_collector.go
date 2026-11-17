@@ -33,7 +33,7 @@ func (c *SMARTCollector) Collect(ctx context.Context) ([]Sample, error) {
 		if _, err := os.Stat(filepath.Join(path, "device")); err != nil { continue }
 		device := filepath.Base(path)
 		devicePath := filepath.Join("/dev", device)
-		cmdCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		cmdCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		cmd := exec.CommandContext(cmdCtx, "smartctl", "-j", "-a", devicePath)
 		raw, runErr := cmd.Output()
 		cancel()
