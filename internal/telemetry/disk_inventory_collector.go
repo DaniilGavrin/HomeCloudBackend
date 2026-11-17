@@ -45,6 +45,23 @@ func (c *DiskInventoryCollector) Collect(ctx context.Context) ([]Sample, error) 
 				out = append(out, Sample{Name:"disk.device.rotational", Labels:labels, Value:float64(rotational), Unit:"boolean", Timestamp:now})
 			}
 		}
+		// Queue geometry and limits are exposed per block device by sysfs.
+		queueFields := map[string]string{
+			"logical_block_size":"bytes",
+			"physical_block_size":"bytes",
+			"minimum_io_size":"bytes",
+			"optimal_io_size":"bytes",
+			"max_sectors_kb":"kibibytes",
+			"nr_requests":"requests",
+			"read_ahead_kb":"kibibytes",
+			"discard_granularity":"bytes",
+			"discard_max_bytes":"bytes",
+		}
+		for field, unit := range queueFields {
+			raw, e := os.ReadFile(filepath.Join(path, "queue", field)); if e != nil { continue }
+			value, e := strconv.ParseUint(strings.TrimSpace(string(raw)), 10, 64); if e != nil { continue }
+			out = append(out, Sample{Name:"disk.device."+field, Labels:labels, Value:float64(value), Unit:unit, Timestamp:now})
+		}
 	}
 	return out, nil
 }
