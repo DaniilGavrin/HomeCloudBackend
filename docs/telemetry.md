@@ -57,9 +57,34 @@ Clients must subscribe to `system.metrics` when
 }
 ```
 
-Both filters are optional. The response contains `samples`, internal telemetry
-`stats`, and `server_time`. Stats include collection errors, queue drops, SQLite
-write failures, rollup failures, and retention cleanup failures.
+`node_id`, `metric`, and `prefixes` are optional filters. `prefixes` is an
+array of up to 16 metric-name prefixes (for example `["cpu.", "memory."]`).
+The response contains only matching `samples`, plus internal telemetry `stats`
+and `server_time`. Stats include collection errors, queue drops, SQLite write
+failures, rollup failures, and retention cleanup failures.
+
+### Category-scoped live streams
+
+The legacy `system.metrics` topic remains available and continues to publish
+all collector batches for existing clients. New clients should subscribe only
+to the active category topic:
+
+| Topic | Metric namespaces |
+| --- | --- |
+| `system.metrics.overview` | Compact CPU, memory, uptime, service and disk-capacity summary |
+| `system.metrics.cpu` | `cpu.*`, `cpu_frequency.*` |
+| `system.metrics.memory` | `memory.*` |
+| `system.metrics.disks` | `disk.*`, `disk_kernel.*`, `disk_inventory.*`, `smart.*` |
+| `system.metrics.network` | `network.*` |
+| `system.metrics.processes` | `process.*` |
+| `system.metrics.services` | `services.*` |
+| `system.metrics.diagnostics` | Kernel, hardware and diagnostic metrics; selected disk/CPU details are also mirrored here |
+
+Each category event contains only the changed collector batch in `data.payload.samples`.
+Category topics are additive; the legacy aggregate topic is unchanged. A client
+using `message_bus.require_subscription: true` may issue latest/history commands
+after subscribing to either the legacy topic or one category topic. Clients should
+unsubscribe from the previous category when switching tabs.
 
 ### Historical series
 
