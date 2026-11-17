@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"sort"
 	"sync"
+	"strings"
 	"time"
 )
 
@@ -47,8 +47,13 @@ CREATE TABLE IF NOT EXISTS hc_metric_samples (
 CREATE INDEX IF NOT EXISTS idx_hc_metric_samples_range
  ON hc_metric_samples(node_id, metric, resolution_ms, timestamp_ms);
 `
-	if _, err := db.ExecContext(ctx, schema); err != nil {
-		return fmt.Errorf("initialize telemetry history schema: %w", err)
+	for _, statement := range strings.Split(schema, ";") {
+		if strings.TrimSpace(statement) == "" {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("initialize telemetry history schema: %w", err)
+		}
 	}
 	return nil
 }
@@ -158,9 +163,10 @@ LIMIT ?`, q.NodeID, q.Metric, resolutionMS, q.From.UTC().UnixMilli(), q.To.UTC()
 
 func (h *SQLiteHistory) run() {
 	defer close(h.done)
-	ticker := time.NewTicker(250 * time.Millisecond)
+	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	pending := make([]Sample, 0, writeBatchSize)
+	lastCompactedBucket := int64(-1)
 	flush := func() {
 		if len(pending) == 0 {
 			return
@@ -181,7 +187,13 @@ func (h *SQLiteHistory) run() {
 			}
 		case <-ticker.C:
 			flush()
-			_ = h.compact(context.Background(), time.Now().UTC())
+			now := time.Now().UTC()
+			bucket := now.UnixMilli() / tenResolution
+			if bucket != lastCompactedBucket {
+				if err := h.compact(context.Background(), now); err == nil {
+					lastCompactedBucket = bucket
+				}
+			}
 		case <-h.stop:
 			for {
 				select {
@@ -324,4 +336,3 @@ func cloneLabels(labels map[string]string) map[string]string {
 	return copy
 }
 
-var _ = math.MaxFloat64
