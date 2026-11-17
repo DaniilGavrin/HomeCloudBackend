@@ -4,7 +4,20 @@ import (
 	"context"
 	"errors"
 	"math"
+	"regexp"
 	"time"
+)
+
+var metricNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+package telemetry
+
+import (
+	"context"
+	"errors"
+	"math"
+	"regexp"
+	"time"
+)
+
 )
 
 // Sample is a single numeric measurement. Labels must contain stable dimensions
@@ -22,14 +35,20 @@ func (s Sample) Validate() error {
 	if math.IsNaN(s.Value) || math.IsInf(s.Value, 0) {
 		return errors.New("metric value must be finite")
 	}
-	if s.Name == "" {
-		return errors.New("metric name is required")
+	if s.Name == "" || !metricNamePattern.MatchString(s.Name) {
+		return errors.New("metric name must use dotted lowercase identifiers")
 	}
 	if len(s.Name) > 160 {
 		return errors.New("metric name is too long")
 	}
+	if s.NodeID == "" {
+		return errors.New("metric node id is required")
+	}
 	if len(s.NodeID) > 128 {
 		return errors.New("node id is too long")
+	}
+	if len(s.Unit) > 32 {
+		return errors.New("metric unit is too long")
 	}
 	if len(s.Labels) > 16 {
 		return errors.New("too many metric labels")
