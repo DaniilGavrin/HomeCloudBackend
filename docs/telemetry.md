@@ -116,7 +116,7 @@ The Backend registers seventeen collectors when `monitoring.enabled: true`:
 | Memory | `monitoring.sample_interval_seconds` | RAM total/used/available/free, cache/buffers when available, swap and percentages |
 | Network | `monitoring.sample_interval_seconds` | Per-interface RX/TX bytes, packets, errors and drops per second |
 | Network connections | 10 seconds minimum | Aggregate TCP/UDP connection counts by protocol and state; no endpoint addresses or ports are stored |\n| Network kernel | 5 seconds minimum | Linux SNMP/netstat protocol counters, TCP retransmits/resets/segments, IP/ICMP/UDP counters, socket allocation and memory counters, interface speed/MTU/link/duplex and extended FIFO/frame/CRC/missed/carrier/collision/compression/multicast counters |
-| Disk | 5 seconds minimum | Per-device read/write throughput, IOPS, average latency and utilization; filesystem capacity and inode usage (scan throttled to 30 seconds) |\n| Disk kernel | 5 seconds minimum | Linux block-layer read/write/merge counters, sectors, operation times, in-flight IO, busy/weighted time, average queue depth, await, discard and flush statistics where kernel versions expose them |
+| Disk | 5 seconds minimum | Per-device read/write throughput, IOPS, average latency and utilization; filesystem capacity and inode usage (scan throttled to 30 seconds) |\n| Disk kernel | 5 seconds minimum | Linux block-layer read/write/merge counters, sectors, operation times, in-flight IO, busy/weighted time, average queue depth, await, discard and flush statistics where kernel versions expose them; device queue geometry, block sizes and request limits |
 | Physical disk inventory | 5 minutes minimum | Physical block-device capacity, rotational/SSD indicator, vendor and model where Linux sysfs exposes them |
 | Processes | 5 seconds minimum | Total process count and bounded top 25 processes by CPU plus top 25 by RSS, with per-process CPU, RSS, memory percentage and thread history |
 | Hardware sensors | 5 seconds minimum | Temperature, high and critical thresholds where Linux exposes sensors |
@@ -132,7 +132,7 @@ The Backend registers seventeen collectors when `monitoring.enabled: true`:
 The generated configuration defaults to a one-second sample interval. It can be
 adjusted from 1 to 60 seconds. Disk IO is deliberately sampled no faster than every
 five seconds. Filesystem capacity scans are throttled to 30 seconds to avoid repeatedly
-walking mounted filesystems. SMART polling is at least 60 seconds and requires `smartctl`; unsupported devices or unavailable privileges may omit SMART fields.
+walking mounted filesystems. SMART polling is at least 60 seconds and requires `smartctl`; ATA raw/normalized/worst attributes and the standard NVMe health-log counters are exported when present. Unsupported devices or unavailable privileges may omit SMART fields.
 
 Metric names use dotted lowercase identifiers. Interface, device, and mountpoint
 labels are stable dimensions; IP addresses, MAC addresses, process arguments, and
