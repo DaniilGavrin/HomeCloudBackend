@@ -27,7 +27,9 @@ func TestRegisterHostCollectorsProducesCPUAndMemorySamples(t *testing.T) {
 	for time.Now().Before(deadline) {
 		cpuSamples := core.Latest("node-test", "cpu.usage_percent")
 		memorySamples := core.Latest("node-test", "memory.used_bytes")
-		if len(cpuSamples) > 0 && len(memorySamples) > 0 {
+		backendSamples := core.Latest("node-test", "backend.goroutines")
+		processSamples := core.Latest("node-test", "processes.count")
+		if len(cpuSamples) > 0 && len(memorySamples) > 0 && len(backendSamples) > 0 && len(processSamples) > 0 {
 			if err := cpuSamples[0].Validate(); err != nil { t.Fatalf("invalid CPU sample: %v", err) }
 			if err := memorySamples[0].Validate(); err != nil { t.Fatalf("invalid memory sample: %v", err) }
 			return
