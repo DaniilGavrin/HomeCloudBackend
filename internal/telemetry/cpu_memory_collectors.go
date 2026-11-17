@@ -35,9 +35,9 @@ func (c *CPUCollector) Collect(ctx context.Context) ([]Sample, error) {
 	if runtime.GOOS == "linux" {
 		if avg, err := load.AvgWithContext(ctx); err == nil && avg != nil {
 			out = append(out,
-				Sample{Name:"cpu.load.1m", Value:avg.Load1, Unit:"load", Timestamp:now},
-				Sample{Name:"cpu.load.5m", Value:avg.Load5, Unit:"load", Timestamp:now},
-				Sample{Name:"cpu.load.15m", Value:avg.Load15, Unit:"load", Timestamp:now},
+				Sample{Name:"cpu.load.one_minute", Value:avg.Load1, Unit:"load", Timestamp:now},
+				Sample{Name:"cpu.load.five_minutes", Value:avg.Load5, Unit:"load", Timestamp:now},
+				Sample{Name:"cpu.load.fifteen_minutes", Value:avg.Load15, Unit:"load", Timestamp:now},
 			)
 		}
 	}
