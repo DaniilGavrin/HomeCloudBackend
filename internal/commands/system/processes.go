@@ -18,6 +18,7 @@ type ProcessRecord struct {
 	Status        []string `json:"status,omitempty"`
 	RSSBytes      uint64   `json:"rss_bytes"`
 	MemoryPercent float64  `json:"memory_percent"`
+	CPUPercent    float64  `json:"cpu_percent"`
 	Threads       int32    `json:"threads,omitempty"`
 	StartedAt     string   `json:"started_at,omitempty"`
 }
@@ -45,8 +46,8 @@ func RegisterProcessList(r *commands.Registry, requireSubscription bool) {
 			return nil, errors.New("process limit must be between 1 and 200")
 		}
 		if request.SortBy == "" { request.SortBy = "memory" }
-		if request.SortBy != "memory" && request.SortBy != "pid" && request.SortBy != "name" {
-			return nil, errors.New("sort_by must be memory, pid, or name")
+		if request.SortBy != "memory" && request.SortBy != "cpu" && request.SortBy != "pid" && request.SortBy != "name" {
+			return nil, errors.New("sort_by must be memory, cpu, pid, or name")
 		}
 
 		ctx, cancel := context.WithTimeout(parent, 5*time.Second)
@@ -80,11 +81,40 @@ func RegisterProcessList(r *commands.Registry, requireSubscription bool) {
 			}
 			items = append(items, record)
 		}
+		// Process CPU percentage is a delta. Prime each process counter, wait
+		// once for the whole table, then read the second sample.
+		if err := ctx.Err(); err == nil {
+			for _, p := range all {
+				_, _ = p.PercentWithContext(ctx)
+			}
+			timer := time.NewTimer(200 * time.Millisecond)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				if !timer.Stop() {
+					select { case <-timer.C: default: }
+				}
+			}
+			for i := range items {
+				if ctx.Err() != nil { break }
+				for _, p := range all {
+					if p.Pid == items[i].PID {
+						if value, err := p.PercentWithContext(ctx); err == nil {
+							items[i].CPUPercent = value
+						}
+						break
+					}
+				}
+			}
+		}
 		if err := ctx.Err(); err != nil && len(items) == 0 {
 			return nil, err
 		}
 		sort.Slice(items, func(i, j int) bool {
 			switch request.SortBy {
+			case "cpu":
+				if items[i].CPUPercent == items[j].CPUPercent { return items[i].PID < items[j].PID }
+				return items[i].CPUPercent > items[j].CPUPercent
 			case "pid":
 				return items[i].PID < items[j].PID
 			case "name":
