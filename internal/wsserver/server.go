@@ -222,7 +222,7 @@ func (s *Server) SetTelemetryCore(core *telemetry.Core) error {
 			"samples": samples,
 			"collected_at": time.Now().UTC().Format(time.RFC3339Nano),
 		})
-		if err != nil {
+		if err != nil && s.log != nil {
 			s.log.Warn("publish telemetry sample event failed", "error", err)
 		}
 	}); err != nil {
