@@ -49,7 +49,12 @@ func TestHostCollectorIntervalsAreBounded(t *testing.T) {
 	if got := NewNetworkCollector(0).Interval(); got != time.Second {
 		t.Fatalf("network interval = %s, want 1s minimum", got)
 	}
-	if got := NewDiskKernelCollector(0).Interval(); got != 5*time.Second {\n\t\tt.Fatalf("disk kernel interval = %s, want 5s minimum", got)\n\t}\n\tif got := NewNetworkKernelCollector(0).Interval(); got != 5*time.Second {\n\t\tt.Fatalf("network kernel interval = %s, want 5s minimum", got)\n\t}\n\tif got := NewDiskCollector(0).Interval(); got != 5*time.Second {
+	if got := NewDiskKernelCollector(0).Interval(); got != 5*time.Second {
+		t.Fatalf("disk kernel interval = %s, want 5s minimum", got)
+	}
+	if got := NewNetworkKernelCollector(0).Interval(); got != 5*time.Second {
+		t.Fatalf("network kernel interval = %s, want 5s minimum", got)
+	}\n\tif got := NewDiskCollector(0).Interval(); got != 5*time.Second {
 		t.Fatalf("disk interval = %s, want 5s minimum", got)
 	}
 	if got := NewFanCollector(0).Interval(); got != 5*time.Second {
