@@ -144,7 +144,7 @@ func run() error {
 			retentionDays = 14
 		}
 		history, historyErr := telemetry.NewSQLiteHistoryWithRetention(
-			db, 2048, time.Hour, 24*time.Hour, time.Duration(retentionDays)*24*time.Hour,
+			db, 256, time.Hour, 24*time.Hour, time.Duration(retentionDays)*24*time.Hour,
 		)
 		if historyErr != nil {
 			return fmt.Errorf("telemetry history initialization: %w", historyErr)
