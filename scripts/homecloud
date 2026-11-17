@@ -1,0 +1,311 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+OWNER="DaniilGavrin"
+BACKEND_REPO="HomeCloudBackend"
+GATEWAY_REPO="HomeCloud-Media-Gateway"
+STORAGE_REPO="HomeCloud-Storage-Service"
+
+HOME_ROOT="/root/homecloud"
+BIN_DIR="$HOME_ROOT/bin"
+BACKEND_DIR="$HOME_ROOT/HomeCloudBackend"
+GATEWAY_DIR="$HOME_ROOT/media-gateway"
+STORAGE_CONFIG="$HOME_ROOT/storage-service.json"
+
+BACKEND_BIN="$BIN_DIR/HomeCloudBackend-linux-amd64"
+GATEWAY_BIN="$BIN_DIR/HomeCloudMediaGateway-linux-amd64"
+STORAGE_BIN="$BIN_DIR/hc-storage-service-linux-amd64"
+
+BACKEND_SERVICE="homecloud-backend.service"
+STORAGE_SERVICE="homecloud-storage.service"
+GATEWAY_HEALTH="http://127.0.0.1:8091/healthz"
+BACKUP_ROOT="$HOME_ROOT/backups/updater"
+
+log() { printf '[homecloud] %s\n' "$*"; }
+die() { printf '[homecloud] ERROR: %s\n' "$*" >&2; exit 1; }
+
+require_root() {
+  [[ "${EUID}" -eq 0 ]] || die "Запусти команду от root."
+}
+require_tools() {
+  local tool
+  for tool in curl python3 sha256sum install flock systemctl; do
+    command -v "$tool" >/dev/null 2>&1 || die "Не найдена обязательная утилита: $tool"
+  done
+}
+check_layout() {
+  [[ -d "$BACKEND_DIR" && -x "$BACKEND_BIN" ]] || die "Backend не найден по ожидаемым путям: $BACKEND_BIN"
+  [[ -x "$GATEWAY_BIN" ]] || die "Media Gateway не найден: $GATEWAY_BIN"
+  [[ -x "$STORAGE_BIN" ]] || die "Storage Service не найден: $STORAGE_BIN"
+  systemctl cat "$BACKEND_SERVICE" >/dev/null 2>&1 || die "Не найдена служба $BACKEND_SERVICE"
+  systemctl cat "$STORAGE_SERVICE" >/dev/null 2>&1 || die "Не найдена служба $STORAGE_SERVICE"
+}
+
+# Return newest release asset metadata. Includes prereleases because current
+# HomeCloud build workflows publish prerelease build artifacts.
+release_asset() {
+  local repo="$1" asset_name="$2" json
+  json="$(mktemp)"
+  if ! curl --fail --silent --show-error --location \
+      --retry 2 --retry-delay 1 \
+      -H 'Accept: application/vnd.github+json' \
+      -H 'X-GitHub-Api-Version: 2022-11-28' \
+      "https://api.github.com/repos/$OWNER/$repo/releases?per_page=20" -o "$json"; then
+    rm -f "$json"
+    return 1
+  fi
+
+  python3 - "$json" "$asset_name" <<'PY'
+import json, sys
+path, wanted = sys.argv[1:]
+with open(path, encoding="utf-8") as f:
+    releases = json.load(f)
+for release in releases:
+    if release.get("draft"):
+        continue
+    for asset in release.get("assets", []):
+        if asset.get("name") == wanted and asset.get("state") == "uploaded":
+            digest = asset.get("digest") or ""
+            if not digest.startswith("sha256:"):
+                digest = ""
+                for line in (release.get("body") or "").splitlines():
+                    fields = line.strip().split()
+                    if len(fields) == 2 and fields[1] == wanted and len(fields[0]) == 64:
+                        digest = "sha256:" + fields[0].lower()
+                        break
+            if not digest:
+                sys.exit(3)
+            print(asset["browser_download_url"])
+            print(digest.removeprefix("sha256:"))
+            print(release.get("tag_name", "unknown"))
+            sys.exit(0)
+sys.exit(2)
+PY
+  local rc=$?
+  rm -f "$json"
+  return "$rc"
+}
+
+download_verified() {
+  local repo="$1" asset="$2" dest="$3" current="$4" meta url expected tag
+  meta="$(mktemp)"
+  local rc=0
+  if release_asset "$repo" "$asset" >"$meta"; then
+    :
+  else
+    rc=$?
+    rm -f "$meta"
+    case "$rc" in
+      2) log "В репозитории $repo пока нет релиза с $asset."; return 2 ;;
+      3) log "Для $asset отсутствует SHA-256; обновление отменено."; return 3 ;;
+      *) log "Не удалось получить список релизов $repo."; return 1 ;;
+    esac
+  fi
+  local -a fields=()
+  mapfile -t fields < "$meta"
+  rm -f "$meta"
+  url="${fields[0]:-}"
+  expected="${fields[1]:-}"
+  tag="${fields[2]:-unknown}"
+  [[ "$url" == https://github.com/*/releases/download/* ]] || die "Недопустимый URL релиза."
+  [[ "$expected" =~ ^[a-fA-F0-9]{64}$ ]] || die "Некорректный SHA-256 для $asset."
+
+  local installed_hash=""
+  if [[ -f "$current" ]]; then
+    installed_hash="$(sha256sum "$current" | awk '{print $1}')"
+  fi
+  if [[ -n "$installed_hash" && "${installed_hash,,}" == "${expected,,}" ]]; then
+    log "$asset уже актуален: SHA-256 совпадает ($tag)."
+    return 10
+  fi
+
+  log "Скачиваю $asset ($tag)"
+  if ! curl --fail --silent --show-error --location --retry 2 --retry-delay 1 "$url" -o "$dest"; then
+    rm -f "$dest"
+    log "Не удалось скачать $asset."
+    return 1
+  fi
+  local actual
+  if ! actual="$(sha256sum "$dest" | awk '{print $1}')"; then
+    rm -f "$dest"
+    log "Не удалось вычислить SHA-256 для $asset."
+    return 1
+  fi
+  if [[ "${actual,,}" != "${expected,,}" ]]; then
+    rm -f "$dest"
+    log "SHA-256 не совпал для $asset."
+    return 1
+  fi
+  chmod 0755 "$dest" || return 1
+  log "SHA-256 подтверждён: $asset"
+}
+
+wait_service_active() {
+  local service="$1" i
+  for i in $(seq 1 20); do
+    if systemctl is-active --quiet "$service"; then return 0; fi
+    sleep 1
+  done
+  return 1
+}
+
+wait_gateway_health() {
+  local i
+  for i in $(seq 1 30); do
+    if curl --fail --silent --max-time 2 "$GATEWAY_HEALTH" | python3 -c '
+import json,sys
+try:
+ d=json.load(sys.stdin)
+ sys.exit(0 if d.get("service")=="homecloud-media-gateway" and d.get("status")=="alive" else 1)
+except Exception: sys.exit(1)
+'; then return 0; fi
+    sleep 1
+  done
+  return 1
+}
+
+update_one() {
+  local component="$1" repo asset target service temp backup_dir backup
+  case "$component" in
+    backend)
+      repo="$BACKEND_REPO"; asset="HomeCloudBackend-linux-amd64"
+      target="$BACKEND_BIN"; service="$BACKEND_SERVICE" ;;
+    media|gateway)
+      repo="$GATEWAY_REPO"; asset="HomeCloudMediaGateway-linux-amd64"
+      target="$GATEWAY_BIN"; service="$BACKEND_SERVICE" ;;
+    storage)
+      repo="$STORAGE_REPO"; asset="hc-storage-service-linux-amd64"
+      target="$STORAGE_BIN"; service="$STORAGE_SERVICE" ;;
+    *) die "Неизвестный компонент: $component" ;;
+  esac
+
+  [[ -x "$target" ]] || die "Не найден текущий бинарник: $target"
+
+  # A matching digest removes this transient staging file and exits before
+  # creating a backup, replacing a binary, or touching any systemd service.
+  local temp="" download_rc=0
+  temp="$(mktemp "$BIN_DIR/.homecloud-update.XXXXXX")"
+  if download_verified "$repo" "$asset" "$temp" "$target"; then
+    :
+  else
+    download_rc=$?
+    rm -f "$temp"
+    if [[ "$download_rc" -eq 10 ]]; then
+      return 0
+    fi
+    return "$download_rc"
+  fi
+
+  backup_dir="$BACKUP_ROOT/$(date -u +%Y%m%dT%H%M%SZ)"
+  mkdir -p "$backup_dir"
+  chmod 0700 "$backup_dir"
+  backup="$backup_dir/$(basename "$target")"
+  install -m 0755 "$target" "$backup"
+  log "Резервная копия: $backup"
+
+  if ! systemctl stop "$service"; then rm -f "$temp"; die "Не удалось остановить $service"; fi
+  if ! install -m 0755 "$temp" "$target"; then
+    install -m 0755 "$backup" "$target"
+    systemctl start "$service" || true
+    rm -f "$temp"
+    die "Не удалось установить новый бинарник; выполнен откат."
+  fi
+  rm -f "$temp"
+
+  if ! systemctl start "$service"; then
+    log "Запуск службы не удался; возвращаю предыдущий бинарник."
+    systemctl stop "$service" || true
+    install -m 0755 "$backup" "$target"
+    systemctl start "$service" || true
+    die "Обновление $component отменено, восстановлена предыдущая версия."
+  fi
+
+  if ! wait_service_active "$service"; then
+    log "Служба не перешла в active; выполняю откат."
+    systemctl stop "$service" || true
+    install -m 0755 "$backup" "$target"
+    systemctl start "$service" || true
+    die "Health check systemd не пройден; бинарник восстановлен."
+  fi
+
+  if [[ "$component" == "media" || "$component" == "gateway" ]]; then
+    if ! wait_gateway_health; then
+      log "Gateway не прошёл /healthz; выполняю откат."
+      systemctl stop "$BACKEND_SERVICE" || true
+      install -m 0755 "$backup" "$target"
+      systemctl start "$BACKEND_SERVICE" || true
+      wait_gateway_health || true
+      die "Gateway не прошёл health check; предыдущий бинарник восстановлен."
+    fi
+  fi
+  log "Компонент $component успешно обновлён."
+}
+
+show_version() {
+  local binary
+  for binary in "$BACKEND_BIN" "$GATEWAY_BIN" "$STORAGE_BIN"; do
+    if [[ -f "$binary" ]]; then
+      printf '%s  ' "$binary"
+      sha256sum "$binary" | awk '{print $1}'
+    else
+      printf '%s  %s\n' "$binary" "не установлен"
+    fi
+  done
+}
+
+usage() {
+  cat <<'EOF'
+HomeCloud local updater
+
+Usage:
+  homecloud update                 Update all available components
+  homecloud update backend        Update Backend
+  homecloud update media          Update Media Gateway
+  homecloud update storage        Update Storage Service
+  homecloud version               Show installed binary information
+  homecloud status                Show local systemd status
+EOF
+}
+
+main() {
+  case "${1:-}" in
+    update)
+      require_root
+      require_tools
+      check_layout
+
+      # Prevent concurrent manual update runs.
+      exec 9>/run/lock/homecloud-updater.lock
+      flock -n 9 || die "Другой процесс обновления уже выполняется."
+
+      case "${2:-all}" in
+        all)
+          update_one backend
+          update_one media
+          # Storage currently has no published release. Probe metadata first;
+          # if an asset exists, run the updater normally so errexit stays active.
+          local storage_rc=0
+          if release_asset "$STORAGE_REPO" "hc-storage-service-linux-amd64" >/dev/null; then
+            update_one storage
+          else
+            storage_rc=$?
+            if [[ "$storage_rc" -eq 2 ]]; then
+              log "Storage Service пропущен: в его репозитории пока нет опубликованного релиза."
+            else
+              return "$storage_rc"
+            fi
+          fi
+          ;;
+        backend|media|gateway|storage) update_one "$2" ;;
+        *) usage; exit 2 ;;
+      esac
+      ;;
+    version) show_version ;;
+    status)
+      systemctl --no-pager --full status "$BACKEND_SERVICE" "$STORAGE_SERVICE" || true
+      ;;
+    -h|--help|"") usage ;;
+    *) usage; exit 2 ;;
+  esac
+}
+main "$@"
