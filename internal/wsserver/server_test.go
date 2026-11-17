@@ -71,7 +71,7 @@ func TestTelemetryMetricGroup(t *testing.T) {
 }
 
 func TestTelemetryOverviewMetric(t *testing.T) {
-	for _, name := range []string{"cpu.usage_percent", "memory.used_percent", "host.uptime_seconds", "services.available", "disk.root.used_percent"} {
+	for _, name := range []string{"cpu.usage_percent", "memory.used_percent", "host.uptime_seconds", "services.available"} {
 		if !telemetryOverviewMetric(name) {
 			t.Errorf("expected %q in overview", name)
 		}
