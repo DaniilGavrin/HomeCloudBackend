@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"testing"
+	"sync"
 	"time"
 )
 
@@ -17,12 +18,20 @@ func (c testCollector) Collect(context.Context) ([]Sample, error) {
 }
 
 type testHistory struct {
+	mu sync.Mutex
 	samples []Sample
 }
 
 func (h *testHistory) Append(_ context.Context, samples []Sample) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.samples = append(h.samples, samples...)
 	return nil
+}
+func (h *testHistory) Count() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.samples)
 }
 func (h *testHistory) Query(context.Context, Query) ([]Point, error) { return nil, nil }
 func (h *testHistory) Close() error { return nil }
@@ -53,8 +62,8 @@ func TestCoreCollectsAndCachesSamples(t *testing.T) {
 	if latest[0].NodeID != "node-a" || latest[0].Value != 12.5 {
 		t.Fatalf("unexpected sample: %#v", latest[0])
 	}
-	if len(history.samples) != 1 {
-		t.Fatalf("expected one persisted sample, got %d", len(history.samples))
+	if history.Count() != 1 {
+		t.Fatalf("expected one persisted sample, got %d", history.Count())
 	}
 	if err := core.Close(); err != nil {
 		t.Fatal(err)
