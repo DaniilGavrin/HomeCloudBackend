@@ -10,7 +10,11 @@ import (
 	"github.com/shirou/gopsutil/v4/mem"
 )
 
-type CPUCollector struct{ interval time.Duration }
+type CPUCollector struct {
+	interval time.Duration
+	previous cpu.TimesStat
+	hasPrevious bool
+}
 
 func NewCPUCollector(interval time.Duration) *CPUCollector {
 	if interval < time.Second { interval = time.Second }
@@ -31,6 +35,14 @@ func (c *CPUCollector) Collect(ctx context.Context) ([]Sample, error) {
 			out = append(out, Sample{Name:"cpu.core.usage_percent", Labels:map[string]string{"core": itoa(i)}, Value:value, Unit:"percent", Timestamp:now})
 		}
 		out = append(out, Sample{Name:"cpu.usage_percent", Value:total/float64(len(values)), Unit:"percent", Timestamp:now})
+	}
+	if times, err := cpu.TimesWithContext(ctx, false); err == nil && len(times) > 0 {
+		current := times[0]
+		if c.hasPrevious {
+			appendCPUModeSamples(&out, c.previous, current, now)
+		}
+		c.previous = current
+		c.hasPrevious = true
 	}
 	if runtime.GOOS == "linux" {
 		if avg, err := load.AvgWithContext(ctx); err == nil && avg != nil {
@@ -84,4 +96,29 @@ func itoa(v int) string {
 	i := len(buf)
 	for v > 0 { i--; buf[i] = byte('0' + v%10); v /= 10 }
 	return string(buf[i:])
+}
+
+func appendCPUModeSamples(out *[]Sample, previous, current cpu.TimesStat, now time.Time) {
+	deltas := map[string]float64{
+		"user": current.User - previous.User,
+		"system": current.System - previous.System,
+		"idle": current.Idle - previous.Idle,
+		"nice": current.Nice - previous.Nice,
+		"iowait": current.Iowait - previous.Iowait,
+		"irq": current.Irq - previous.Irq,
+		"softirq": current.Softirq - previous.Softirq,
+		"steal": current.Steal - previous.Steal,
+	}
+	total := 0.0
+	for _, delta := range deltas {
+		if delta < 0 { return }
+		total += delta
+	}
+	if total <= 0 { return }
+	for mode, delta := range deltas {
+		*out = append(*out, Sample{
+			Name:"cpu.mode."+mode+"_percent", Value:delta/total*100,
+			Unit:"percent", Timestamp:now,
+		})
+	}
 }
