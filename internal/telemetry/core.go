@@ -142,6 +142,7 @@ func (c *Core) collect(parent context.Context, collector Collector, interval tim
 	}
 	c.mu.Lock()
 	for _, sample := range valid {
+		sample.Labels = cloneLabels(sample.Labels)
 		key := sampleKey(sample)
 		c.latest[key] = sample
 	}
