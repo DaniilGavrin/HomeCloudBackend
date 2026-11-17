@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/shirou/gopsutil/v4/process"
 )
