@@ -24,6 +24,7 @@ func RegisterHostCollectors(core *Core, interval time.Duration) error {
 		NewSensorCollector(interval),
 		NewBackendCollector(interval),
 		NewHostCollector(interval),
+		NewFanCollector(interval),
 	}
 	for _, collector := range collectors {
 		if err := core.Register(collector); err != nil {
