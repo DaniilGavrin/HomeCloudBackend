@@ -94,10 +94,10 @@ The Backend registers four collectors when `monitoring.enabled: true`:
 | Network | `monitoring.sample_interval_seconds` | Per-interface RX/TX bytes, packets, errors and drops per second |
 | Disk | 5 seconds minimum | Per-device read/write throughput and IOPS; filesystem capacity and inode usage every 30 seconds |
 
-The default sample interval in the generated configuration is 30 seconds. Set it to
-`1` for Netdata-like CPU, memory and network sampling. Disk IO is deliberately
-sampled no faster than every five seconds, while filesystem capacity scans are
-throttled to 30 seconds to avoid repeatedly walking mounted filesystems.
+The generated configuration defaults to a one-second sample interval. It can be
+adjusted from 1 to 60 seconds. Disk IO is deliberately sampled no faster than every
+five seconds, while filesystem capacity scans are throttled to 30 seconds. Disk capacity scans are throttled to 30 seconds to avoid repeatedly walking mounted
+filesystems.
 
 Metric names use dotted lowercase identifiers. Interface, device, and mountpoint
 labels are stable dimensions; IP addresses, MAC addresses, process arguments, and
