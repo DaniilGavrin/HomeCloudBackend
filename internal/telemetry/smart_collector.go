@@ -90,6 +90,13 @@ func (c *SMARTCollector) Collect(ctx context.Context) ([]Sample, error) {
 					out = append(out, Sample{Name:"disk.smart.nvme_temperature_sensor_celsius", Labels:map[string]string{"device":device,"sensor":strconv.Itoa(i)}, Value:value, Unit:"celsius", Timestamp:now})
 				}
 			}
+			if sensors, ok := nvme["temperature_sensors"].([]any); ok {
+				for i, raw := range sensors {
+					if value, ok := raw.(float64); ok && value > 0 {
+						out = append(out, Sample{Name:"disk.smart.nvme_temperature_sensor_celsius", Labels:map[string]string{"device":device,"sensor":strconv.Itoa(i+1)}, Value:value, Unit:"celsius", Timestamp:now})
+					}
+				}
+			}
 		}
 		if hours := nestedNumber(payload, "power_on_time", "hours"); hours >= 0 {
 			appendMetric("disk.smart.power_on_hours", hours, "hours")
