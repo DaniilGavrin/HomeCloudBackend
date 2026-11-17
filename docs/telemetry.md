@@ -107,7 +107,7 @@ five-second collection deadline and a bounded result size.
 
 ## Built-in host collectors
 
-The Backend registers nine collectors when `monitoring.enabled: true`:
+The Backend registers ten collectors when `monitoring.enabled: true`:
 
 | Collector | Cadence | Metrics |
 | --- | --- | --- |
@@ -117,6 +117,7 @@ The Backend registers nine collectors when `monitoring.enabled: true`:
 | Disk | 5 seconds minimum | Per-device read/write throughput, IOPS, average latency and utilization; filesystem capacity and inode usage (scan throttled to 30 seconds) |
 | Processes | 5 seconds minimum | Total process count |
 | Hardware sensors | 5 seconds minimum | Temperature, high and critical thresholds where Linux exposes sensors |
+| Fans | 5 seconds minimum | RPM from Linux hwmon fan inputs where available |
 | Backend | 5 seconds minimum | Goroutines, Go heap, allocations, GC cycles, process RSS/VMS and threads |
 | Host | 30 seconds minimum | Uptime and boot timestamp |
 | Services | 5 seconds | Backend, connected Media Gateway and registered Storage Service nodes availability |
