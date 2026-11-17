@@ -106,7 +106,7 @@ The command has a five-second collection deadline and a bounded result size.
 
 ## Built-in host collectors
 
-The Backend registers four collectors when `monitoring.enabled: true`:
+The Backend registers nine collectors when `monitoring.enabled: true`:
 
 | Collector | Cadence | Metrics |
 | --- | --- | --- |
@@ -128,8 +128,8 @@ walking mounted filesystems.
 Metric names use dotted lowercase identifiers. Interface, device, and mountpoint
 labels are stable dimensions; IP addresses, MAC addresses, process arguments, and
 other sensitive/high-cardinality values are not included in these series. The process
-collector stores only an aggregate process count; detailed process listings will be
-provided separately on demand. Service availability is represented as `1` (online)
+collector stores only an aggregate process count; detailed process listings are
+available on demand through `system.processes`. Service availability is represented as `1` (online)
 or `0` (offline), with a `service` label. Disabled Media Gateway is omitted; Storage
 Service metrics are emitted for registered storage nodes.
 
