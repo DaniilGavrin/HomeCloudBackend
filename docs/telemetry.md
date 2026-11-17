@@ -107,17 +107,19 @@ five-second collection deadline and a bounded result size.
 
 ## Built-in host collectors
 
-The Backend registers ten collectors when `monitoring.enabled: true`:
+The Backend registers twelve collectors when `monitoring.enabled: true`:
 
 | Collector | Cadence | Metrics |
 | --- | --- | --- |
 | CPU | `monitoring.sample_interval_seconds` | Total and per-core utilization, user/system/idle/nice/iowait/IRQ/softirq/steal mode percentages; Linux 1/5/15-minute load average |
 | Memory | `monitoring.sample_interval_seconds` | RAM total/used/available/free, cache/buffers when available, swap and percentages |
 | Network | `monitoring.sample_interval_seconds` | Per-interface RX/TX bytes, packets, errors and drops per second |
+| Network connections | 10 seconds minimum | Aggregate TCP/UDP connection counts by protocol and state; no endpoint addresses or ports are stored |
 | Disk | 5 seconds minimum | Per-device read/write throughput, IOPS, average latency and utilization; filesystem capacity and inode usage (scan throttled to 30 seconds) |
-| Processes | 5 seconds minimum | Total process count |
+| Processes | 5 seconds minimum | Total process count and bounded top 25 processes by CPU plus top 25 by RSS, with per-process CPU, RSS, memory percentage and thread history |
 | Hardware sensors | 5 seconds minimum | Temperature, high and critical thresholds where Linux exposes sensors |
 | Fans | 5 seconds minimum | RPM from Linux hwmon fan inputs where available |
+| SMART | 60 seconds minimum | Health pass/fail, supported temperature, NVMe percentage used, power-on hours and selected ATA error counters when `smartmontools` is installed |
 | Backend | 5 seconds minimum | Goroutines, Go heap, allocations, GC cycles, process RSS/VMS and threads |
 | Host | 30 seconds minimum | Uptime and boot timestamp |
 | Services | 5 seconds | Backend, connected Media Gateway and registered Storage Service nodes availability |
@@ -125,7 +127,7 @@ The Backend registers ten collectors when `monitoring.enabled: true`:
 The generated configuration defaults to a one-second sample interval. It can be
 adjusted from 1 to 60 seconds. Disk IO is deliberately sampled no faster than every
 five seconds. Filesystem capacity scans are throttled to 30 seconds to avoid repeatedly
-walking mounted filesystems.
+walking mounted filesystems. SMART polling is at least 60 seconds and requires `smartctl`; unsupported devices or unavailable privileges may omit SMART fields.
 
 Metric names use dotted lowercase identifiers. Interface, device, and mountpoint
 labels are stable dimensions; IP addresses, MAC addresses, process arguments, and
