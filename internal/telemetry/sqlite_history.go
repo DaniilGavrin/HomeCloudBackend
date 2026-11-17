@@ -82,6 +82,12 @@ func NewSQLiteHistoryWithRetention(db *sql.DB, queueSize int, rawRetention, tenR
 		stop: make(chan struct{}), done: make(chan struct{}),
 		rawRetention: rawRetention, tenRetention: tenRetention, minuteRetention: minuteRetention,
 	}
+	pruneCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	err := h.prune(pruneCtx, time.Now().UTC())
+	cancel()
+	if err != nil {
+		return nil, fmt.Errorf("initial telemetry retention cleanup: %w", err)
+	}
 	go h.run()
 	return h, nil
 }
@@ -193,7 +199,6 @@ func (h *SQLiteHistory) run() {
 			h.mu.Unlock()
 		}
 	}
-	prune()
 	flush := func() {
 		if len(pending) == 0 {
 			return
