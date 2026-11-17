@@ -44,7 +44,7 @@ func (s Sample) Validate() error {
 		return errors.New("too many metric labels")
 	}
 	for key, value := range s.Labels {
-		if key == "" || len(key) > 64 || len(value) > 128 {
+		if key == "" || len(key) > 64 || len(value) > 512 {
 			return errors.New("invalid metric label")
 		}
 	}
