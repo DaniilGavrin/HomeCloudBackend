@@ -55,6 +55,9 @@ func RegisterTelemetry(r *commands.Registry, core *telemetry.Core, requireSubscr
 		if err := json.Unmarshal(msg.Data, &request); err != nil {
 			return nil, errors.New("invalid metrics.query data")
 		}
+		if request.NodeID == "" || request.Metric == "" {
+			return nil, errors.New("node_id and metric are required")
+		}
 		from, err := time.Parse(time.RFC3339Nano, request.From)
 		if err != nil {
 			return nil, errors.New("from must be RFC3339 timestamp")
