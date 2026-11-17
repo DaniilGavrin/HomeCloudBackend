@@ -30,18 +30,20 @@ func (c *CPUFrequencyCollector) Collect(ctx context.Context) ([]Sample, error) {
 		if raw, e := os.ReadFile(filepath.Join(dir,"scaling_governor")); e == nil {
 			if governor := strings.TrimSpace(string(raw)); governor != "" { labels["governor"]=governor }
 		}
-		for _, item := range []struct{ file, metric string }{
-			{"cpuinfo_cur_freq","cpu.frequency.current_mhz"},
-			{"scaling_cur_freq","cpu.frequency.current_mhz"},
-			{"cpuinfo_max_freq","cpu.frequency.max_mhz"},
-		} {
-			raw, e := os.ReadFile(filepath.Join(dir,item.file))
+		var current float64
+		for _, file := range []string{"cpuinfo_cur_freq","scaling_cur_freq"} {
+			raw, e := os.ReadFile(filepath.Join(dir,file))
 			if e != nil { continue }
 			value, e := strconv.ParseFloat(strings.TrimSpace(string(raw)),64)
-			if e != nil || value <= 0 { continue }
-			// cpufreq sysfs values are expressed in kHz.
-			out = append(out,Sample{Name:item.metric,Labels:labels,Value:value/1000,Unit:"megahertz",Timestamp:now})
-			if item.metric=="cpu.frequency.current_mhz" { break } // Prefer cpuinfo_cur_freq, fall back to scaling_cur_freq.
+			if e == nil && value > 0 { current=value/1000; break }
+		}
+		if current > 0 {
+			out=append(out,Sample{Name:"cpu.frequency.current_mhz",Labels:labels,Value:current,Unit:"megahertz",Timestamp:now})
+		}
+		if raw, e := os.ReadFile(filepath.Join(dir,"cpuinfo_max_freq")); e == nil {
+			if value, e := strconv.ParseFloat(strings.TrimSpace(string(raw)),64); e == nil && value > 0 {
+				out=append(out,Sample{Name:"cpu.frequency.max_mhz",Labels:labels,Value:value/1000,Unit:"megahertz",Timestamp:now})
+			}
 		}
 	}
 	return out,nil
