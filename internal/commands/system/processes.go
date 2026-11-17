@@ -84,7 +84,9 @@ func RegisterProcessList(r *commands.Registry, requireSubscription bool) {
 		// Process CPU percentage is a delta. Prime each process counter, wait
 		// once for the whole table, then read the second sample.
 		if err := ctx.Err(); err == nil {
+			byPID := make(map[int32]*process.Process, len(all))
 			for _, p := range all {
+				byPID[p.Pid] = p
 				_, _ = p.PercentWithContext(ctx)
 			}
 			timer := time.NewTimer(200 * time.Millisecond)
@@ -92,17 +94,19 @@ func RegisterProcessList(r *commands.Registry, requireSubscription bool) {
 			case <-timer.C:
 			case <-ctx.Done():
 				if !timer.Stop() {
-					select { case <-timer.C: default: }
+					select {
+					case <-timer.C:
+					default:
+					}
 				}
 			}
 			for i := range items {
-				if ctx.Err() != nil { break }
-				for _, p := range all {
-					if p.Pid == items[i].PID {
-						if value, err := p.PercentWithContext(ctx); err == nil {
-							items[i].CPUPercent = value
-						}
-						break
+				if ctx.Err() != nil {
+					break
+				}
+				if p := byPID[items[i].PID]; p != nil {
+					if value, err := p.PercentWithContext(ctx); err == nil {
+						items[i].CPUPercent = value
 					}
 				}
 			}
