@@ -171,7 +171,10 @@ func (h *SQLiteHistory) run() {
 		if len(pending) == 0 {
 			return
 		}
-		if err := h.writeBatch(context.Background(), pending); err != nil {
+		writeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := h.writeBatch(writeCtx, pending)
+		cancel()
+		if err != nil {
 			h.mu.Lock()
 			h.closeErr = errors.Join(h.closeErr, err)
 			h.mu.Unlock()
@@ -190,7 +193,10 @@ func (h *SQLiteHistory) run() {
 			now := time.Now().UTC()
 			bucket := now.UnixMilli() / tenResolution
 			if bucket != lastCompactedBucket {
-				if err := h.compact(context.Background(), now); err == nil {
+				compactCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				err := h.compact(compactCtx, now)
+				cancel()
+				if err == nil {
 					lastCompactedBucket = bucket
 				}
 			}
