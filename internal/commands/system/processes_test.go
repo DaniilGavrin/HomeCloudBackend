@@ -11,7 +11,7 @@ import (
 func TestProcessListCommandReturnsBoundedInventory(t *testing.T) {
 	registry := commands.NewRegistry()
 	RegisterProcessList(registry, false)
-	data, err := json.Marshal(map[string]any{"limit":5, "sort_by":"memory"})
+	data, err := json.Marshal(map[string]any{"limit":5, "sort_by":"cpu"})
 	if err != nil { t.Fatal(err) }
 	out := registry.Dispatch(context.Background(), commands.Inbound{
 		V:1, Type:"command", Action:"system.processes", Data:data,
