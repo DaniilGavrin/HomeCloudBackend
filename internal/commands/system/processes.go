@@ -29,8 +29,8 @@ type processListRequest struct {
 
 // RegisterProcessList adds a bounded, on-demand process inventory. It never
 // exposes command lines, environment variables, or process file descriptors.
-func RegisterProcessList(r *commands.Registry, requireSubscription bool) error {
-	return r.Register("system.processes", func(parent context.Context, msg commands.Inbound, peer commands.ClientContext) (any, error) {
+func RegisterProcessList(r *commands.Registry, requireSubscription bool) {
+	r.MustRegister("system.processes", func(parent context.Context, msg commands.Inbound, peer commands.ClientContext) (any, error) {
 		if requireSubscription && !peer.Subscribed("system.metrics") {
 			return nil, errors.New("subscribe to system.metrics first")
 		}
