@@ -107,7 +107,7 @@ func (h *SQLiteHistory) Query(ctx context.Context, q Query) ([]Point, error) {
 	if q.From.IsZero() || q.To.IsZero() || !q.To.After(q.From) {
 		return nil, ErrInvalidQuery
 	}
-	if q.Metric == "" || len(q.Metric) > 160 {
+	if q.NodeID == "" || len(q.NodeID) > 128 || q.Metric == "" || len(q.Metric) > 160 {
 		return nil, ErrInvalidQuery
 	}
 	if q.Limit <= 0 {
