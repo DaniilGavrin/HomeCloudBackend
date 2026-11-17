@@ -93,6 +93,10 @@ The Backend registers four collectors when `monitoring.enabled: true`:
 | Memory | `monitoring.sample_interval_seconds` | RAM total/used/available/free, cache/buffers when available, swap and percentages |
 | Network | `monitoring.sample_interval_seconds` | Per-interface RX/TX bytes, packets, errors and drops per second |
 | Disk | 5 seconds minimum | Per-device read/write throughput and IOPS; filesystem capacity and inode usage every 30 seconds |
+| Processes | 5 seconds minimum | Total process count |
+| Hardware sensors | 5 seconds minimum | Temperature, high and critical thresholds where Linux exposes sensors |
+| Backend | 5 seconds minimum | Goroutines, Go heap, allocations, GC cycles, process RSS/VMS and threads |
+| Host | 30 seconds minimum | Uptime and boot timestamp |
 
 The generated configuration defaults to a one-second sample interval. It can be
 adjusted from 1 to 60 seconds. Disk IO is deliberately sampled no faster than every
@@ -101,7 +105,9 @@ walking mounted filesystems.
 
 Metric names use dotted lowercase identifiers. Interface, device, and mountpoint
 labels are stable dimensions; IP addresses, MAC addresses, process arguments, and
-other sensitive/high-cardinality values are not included in these series.
+other sensitive/high-cardinality values are not included in these series. The process
+collector stores only an aggregate process count; detailed process listings will be
+provided separately on demand.
 
 For live updates, subscribe to the exact `system.metrics` event topic. The Backend
 publishes each collector batch through the existing session-scoped Event Bus. No
