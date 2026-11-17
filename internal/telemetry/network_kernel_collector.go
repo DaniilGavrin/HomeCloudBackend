@@ -37,6 +37,15 @@ func safeMetricPart(value string) string {
 	return strings.Trim(b.String(), "_")
 }
 
+func isNetworkGauge(protocol, counter string) bool {
+	switch protocol + "." + counter {
+	case "Ip.Forwarding", "Ip.DefaultTTL", "Tcp.RtoAlgorithm", "Tcp.RtoMin", "Tcp.RtoMax", "Tcp.MaxConn":
+		return true
+	default:
+		return false
+	}
+}
+
 func parseProtocolCounters(path string) (map[string]map[string]uint64, error) {
 	file, err := os.Open(path); if err != nil { return nil, err }; defer file.Close()
 	scanner := bufio.NewScanner(file)
@@ -80,7 +89,12 @@ func (c *NetworkKernelCollector) Collect(ctx context.Context) ([]Sample,error) {
 				p:=safeMetricPart(protocol); k:=safeMetricPart(counter)
 				if p==""||k=="" {continue}
 				metric:=fmt.Sprintf("network.stack.%s.%s",p,k)
-				c.appendCounter(&out,metric,metric,map[string]string{"protocol":p,"counter":k},value,now)
+				labels:=map[string]string{"protocol":p,"counter":k}
+				if isNetworkGauge(protocol,counter) {
+					out=append(out,Sample{Name:metric,Labels:labels,Value:float64(value),Unit:"value",Timestamp:now})
+					continue
+				}
+				c.appendCounter(&out,metric,metric,labels,value,now)
 			}
 		}
 	}
