@@ -15,6 +15,8 @@ import (
 	"HomeCloudBackend/internal/commands"
 	"HomeCloudBackend/internal/commands/bootstrap"
 	"HomeCloudBackend/internal/connections"
+	"HomeCloudBackend/internal/commands/system"
+	"HomeCloudBackend/internal/telemetry"
 	devicestore "HomeCloudBackend/internal/devices"
 	"HomeCloudBackend/internal/events"
 	"HomeCloudBackend/internal/mediagateway"
@@ -206,6 +208,44 @@ func New(cfg *wsconfig.Config, db *sql.DB, logger *slog.Logger, storageManagers 
 // RegisterCommand registers an application command before serving connections.
 func (s *Server) RegisterCommand(action string, h commands.Handler) error {
 	return s.registry.Register(action, h)
+}
+
+// SetTelemetryCore registers telemetry commands before the server starts serving.
+func (s *Server) SetTelemetryCore(core *telemetry.Core) error {
+	if core == nil {
+		return errors.New("telemetry core is unavailable")
+	}
+	if err := core.SetObserver(func(samples []telemetry.Sample) {
+		ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+		defer cancel()
+		_, err := s.PublishEvent(ctx, "system.metrics", map[string]any{
+			"samples": samples,
+			"collected_at": time.Now().UTC().Format(time.RFC3339Nano),
+		})
+		if err != nil && s.log != nil {
+			s.log.Warn("publish telemetry sample event failed", "error", err)
+		}
+	}); err != nil {
+		return err
+	}
+	return system.RegisterTelemetry(s.registry, core, s.cfg.MessageBus.RequireSubscription)
+}
+
+// ServiceAvailability returns local HomeCloud service state using existing
+// Gateway and Storage Service session registries. It contains no credentials.
+func (s *Server) ServiceAvailability() map[string]bool {
+	states := map[string]bool{"backend": true, "storage_service": false}
+	if s.cfg.MediaGateway.Enabled {
+		_, online := s.gateways.Get()
+		states["media_gateway"] = online
+	}
+	for _, entry := range s.storageAgents.Status() {
+		states["storage_service:"+entry.NodeID] = entry.Online
+		if entry.Online {
+			states["storage_service"] = true
+		}
+	}
+	return states
 }
 
 // PublishEvent permits future Go modules to broadcast without touching sockets.

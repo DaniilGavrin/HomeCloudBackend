@@ -2,6 +2,7 @@ package wsconfig
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -116,5 +117,24 @@ func TestPermissionsStorageOptionalAndValidated(t *testing.T) {
 	config.Security.Authorization.PermissionsStorage = "filesystem"
 	if err := CheckStart(config, t.TempDir()); err == nil {
 		t.Fatal("unsupported permissions backend accepted")
+	}
+}
+
+func TestMonitoringBoundsApplyInFastAndStrictModes(t *testing.T) {
+	for _, mode := range []uint8{StartFast, StartStrict} {
+		t.Run(fmt.Sprintf("mode_%02x", mode), func(t *testing.T) {
+			cfg := validConfig(t)
+			cfg.TypeStart.StartByte = &mode
+			cfg.Monitoring.SampleIntervalSeconds = 61
+			if err := CheckStart(cfg, t.TempDir()); err == nil {
+				t.Fatal("sample interval above 60 seconds was accepted")
+			}
+			cfg = validConfig(t)
+			cfg.TypeStart.StartByte = &mode
+			cfg.Monitoring.MetricsRetentionDays = 15
+			if err := CheckStart(cfg, t.TempDir()); err == nil {
+				t.Fatal("retention above 14 days was accepted")
+			}
+		})
 	}
 }
