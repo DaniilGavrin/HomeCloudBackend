@@ -79,3 +79,28 @@ func TestSampleValidationRejectsHighCardinalityLabels(t *testing.T) {
 		t.Fatal("expected label limit validation error")
 	}
 }
+
+func TestCoreObserverReceivesCollectedSamples(t *testing.T) {
+	history := &testHistory{}
+	core, err := NewCore("node-a", history)
+	if err != nil { t.Fatal(err) }
+	observed := make(chan []Sample, 1)
+	if err := core.SetObserver(func(samples []Sample) { observed <- samples }); err != nil {
+		t.Fatal(err)
+	}
+	if err := core.Register(testCollector{samples: []Sample{{
+		Name:"cpu.usage_percent", Value:42, Timestamp:time.Now().UTC(),
+	}}}); err != nil { t.Fatal(err) }
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := core.Start(ctx); err != nil { cancel(); t.Fatal(err) }
+	select {
+	case samples := <-observed:
+		if len(samples) != 1 || samples[0].NodeID != "node-a" || samples[0].Value != 42 {
+			t.Fatalf("unexpected observed samples: %#v", samples)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("observer did not receive the collected sample")
+	}
+	cancel()
+	if err := core.Close(); err != nil { t.Fatal(err) }
+}
