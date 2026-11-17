@@ -295,7 +295,9 @@ func telemetryDiagnosticMetric(name string) bool {
 	return strings.HasPrefix(name, "cpu_frequency.") ||
 		strings.HasPrefix(name, "disk_inventory.") ||
 		strings.HasPrefix(name, "disk_kernel.") ||
-		strings.HasPrefix(name, "smart.")
+		strings.HasPrefix(name, "smart.") ||
+		strings.HasPrefix(name, "network_kernel.") ||
+		strings.HasPrefix(name, "network_connections.")
 }
 
 func telemetryOverviewMetric(name string) bool {
