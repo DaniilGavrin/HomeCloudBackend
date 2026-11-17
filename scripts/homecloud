@@ -110,11 +110,23 @@ download_verified() {
   [[ "$expected" =~ ^[a-fA-F0-9]{64}$ ]] || die "Некорректный SHA-256 для $asset."
 
   log "Скачиваю $asset ($tag)"
-  curl --fail --silent --show-error --location --retry 2 --retry-delay 1 "$url" -o "$dest"
+  if ! curl --fail --silent --show-error --location --retry 2 --retry-delay 1 "$url" -o "$dest"; then
+    rm -f "$dest"
+    log "Не удалось скачать $asset."
+    return 1
+  fi
   local actual
-  actual="$(sha256sum "$dest" | awk '{print $1}')"
-  [[ "${actual,,}" == "${expected,,}" ]] || die "SHA-256 не совпал для $asset. Файл удалён."
-  chmod 0755 "$dest"
+  if ! actual="$(sha256sum "$dest" | awk '{print $1}')"; then
+    rm -f "$dest"
+    log "Не удалось вычислить SHA-256 для $asset."
+    return 1
+  fi
+  if [[ "${actual,,}" != "${expected,,}" ]]; then
+    rm -f "$dest"
+    log "SHA-256 не совпал для $asset."
+    return 1
+  fi
+  chmod 0755 "$dest" || return 1
   log "SHA-256 подтверждён: $asset"
 }
 
@@ -248,11 +260,11 @@ main() {
         all)
           update_one backend
           update_one media
-          # Storage releases are not published yet. Treat absence as a skip,
-          # but never silently skip an actual download/checksum/install error.
+          # Storage currently has no published release. Probe metadata first;
+          # if an asset exists, run the updater normally so errexit stays active.
           local storage_rc=0
-          if update_one storage; then
-            :
+          if release_asset "$STORAGE_REPO" "hc-storage-service-linux-amd64" >/dev/null; then
+            update_one storage
           else
             storage_rc=$?
             if [[ "$storage_rc" -eq 2 ]]; then
