@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const latestRetention = 10 * time.Minute
+
 type Core struct {
 	nodeID    string
 	history   History
@@ -160,6 +162,11 @@ func (c *Core) collect(parent context.Context, collector Collector, interval tim
 		return
 	}
 	c.mu.Lock()
+	for key, cached := range c.latest {
+		if now.Sub(cached.Timestamp) > latestRetention {
+			delete(c.latest, key)
+		}
+	}
 	for _, sample := range valid {
 		sample.Labels = cloneLabels(sample.Labels)
 		key := sampleKey(sample)
