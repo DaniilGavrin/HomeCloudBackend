@@ -30,7 +30,9 @@ func Register(r *commands.Registry, d Dependencies) {
 	r.MustRegister("system.status", func(ctx context.Context, msg commands.Inbound, peer commands.ClientContext) (any, error) {
 		status := Status(ctx, d.Online)
 		if d.NodeID != nil {
-			status["node_id"] = d.NodeID()
+			if nodeID := d.NodeID(); nodeID != "" {
+				status["node_id"] = nodeID
+			}
 		}
 		return status, nil
 	})
