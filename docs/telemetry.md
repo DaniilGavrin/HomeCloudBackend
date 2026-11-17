@@ -58,7 +58,8 @@ Clients must subscribe to `system.metrics` when
 ```
 
 Both filters are optional. The response contains `samples`, internal telemetry
-`stats`, and `server_time`.
+`stats`, and `server_time`. Stats include collection errors, queue drops, SQLite
+write failures, rollup failures, and retention cleanup failures.
 
 ### Historical series
 
