@@ -8,17 +8,7 @@ import (
 	"time"
 )
 
-var metricNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+package telemetry
-
-import (
-	"context"
-	"errors"
-	"math"
-	"regexp"
-	"time"
-)
-
-)
+var metricNamePattern = regexp.MustCompile("^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$")
 
 // Sample is a single numeric measurement. Labels must contain stable dimensions
 // (for example cpu="0" or interface="eth0"), never high-cardinality values.
