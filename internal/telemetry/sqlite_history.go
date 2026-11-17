@@ -27,6 +27,9 @@ type SQLiteHistory struct {
 	mu       sync.RWMutex
 	closed   bool
 	closeErr error
+	rawRetention time.Duration
+	tenRetention time.Duration
+	minuteRetention time.Duration
 }
 
 func InitSQLiteSchema(ctx context.Context, db *sql.DB) error {
@@ -59,15 +62,23 @@ CREATE INDEX IF NOT EXISTS idx_hc_metric_samples_range
 }
 
 func NewSQLiteHistory(db *sql.DB, queueSize int) (*SQLiteHistory, error) {
+	return NewSQLiteHistoryWithRetention(db, queueSize, time.Hour, 24*time.Hour, 14*24*time.Hour)
+}
+
+func NewSQLiteHistoryWithRetention(db *sql.DB, queueSize int, rawRetention, tenRetention, minuteRetention time.Duration) (*SQLiteHistory, error) {
 	if db == nil {
 		return nil, errors.New("telemetry database is nil")
 	}
 	if queueSize <= 0 {
 		queueSize = 2048
 	}
+	if rawRetention <= 0 || tenRetention <= 0 || minuteRetention <= 0 {
+		return nil, errors.New("telemetry retention durations must be positive")
+	}
 	h := &SQLiteHistory{
 		db: db, queue: make(chan []Sample, queueSize),
 		stop: make(chan struct{}), done: make(chan struct{}),
+		rawRetention: rawRetention, tenRetention: tenRetention, minuteRetention: minuteRetention,
 	}
 	go h.run()
 	return h, nil
@@ -290,9 +301,9 @@ DELETE FROM hc_metric_samples
 WHERE (resolution_ms=? AND timestamp_ms<?)
    OR (resolution_ms=? AND timestamp_ms<?)
    OR (resolution_ms=? AND timestamp_ms<?)`,
-		rawResolution, nowMS-60*60*1000,
-		tenResolution, nowMS-24*60*60*1000,
-		minResolution, nowMS-14*24*60*60*1000)
+		rawResolution, nowMS-h.rawRetention.Milliseconds(),
+		tenResolution, nowMS-h.tenRetention.Milliseconds(),
+		minResolution, nowMS-h.minuteRetention.Milliseconds())
 	if err != nil {
 		_ = tx.Rollback()
 		return err
