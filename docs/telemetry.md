@@ -103,5 +103,6 @@ Metric names use dotted lowercase identifiers. Interface, device, and mountpoint
 labels are stable dimensions; IP addresses, MAC addresses, process arguments, and
 other sensitive/high-cardinality values are not included in these series.
 
-Live event streaming is not part of this stage; clients can currently poll latest
-values or query persisted time-series through the WebSocket commands above.
+For live updates, subscribe to the exact `system.metrics` event topic. The Backend
+publishes each collector batch through the existing session-scoped Event Bus. No
+second WebSocket connection or wildcard subscription is introduced.
