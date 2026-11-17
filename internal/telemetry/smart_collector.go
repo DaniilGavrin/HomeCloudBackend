@@ -87,7 +87,7 @@ func (c *SMARTCollector) Collect(ctx context.Context) ([]Sample, error) {
 			for i := 1; i <= 8; i++ {
 				field := "temperature_sensor_" + strconv.Itoa(i)
 				if value, ok := nvme[field].(float64); ok && value > 0 {
-					appendMetric("disk.smart.nvme_temperature_sensor_celsius", value, "celsius")
+					out = append(out, Sample{Name:"disk.smart.nvme_temperature_sensor_celsius", Labels:map[string]string{"device":device,"sensor":strconv.Itoa(i)}, Value:value, Unit:"celsius", Timestamp:now})
 				}
 			}
 		}
