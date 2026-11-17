@@ -231,6 +231,20 @@ func (s *Server) SetTelemetryCore(core *telemetry.Core) error {
 	return system.RegisterTelemetry(s.registry, core, s.cfg.MessageBus.RequireSubscription)
 }
 
+// ServiceAvailability returns local HomeCloud service state using existing
+// Gateway and Storage Service session registries. It contains no credentials.
+func (s *Server) ServiceAvailability() map[string]bool {
+	states := map[string]bool{"backend": true}
+	if s.cfg.MediaGateway.Enabled {
+		_, online := s.gateways.Get()
+		states["media_gateway"] = online
+	}
+	for _, entry := range s.storageAgents.Status() {
+		states["storage_service:"+entry.NodeID] = entry.Online
+	}
+	return states
+}
+
 // PublishEvent permits future Go modules to broadcast without touching sockets.
 func (s *Server) PublishEvent(ctx context.Context, topic string, payload any) (events.PublishResult, error) {
 	return s.events.Publish(ctx, topic, "backend", payload)
