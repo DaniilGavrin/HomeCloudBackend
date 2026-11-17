@@ -54,7 +54,14 @@ func TestSQLiteHistoryRollsUpAndRetainsAggregates(t *testing.T) {
 		t.Fatalf("unexpected 10s aggregate: %#v", point)
 	}
 
-	// At the minute boundary, the same 10s aggregate is promoted to 1m history.
+	// A second 10s bucket inside the following minute is promoted to 1m history.
+	minuteSamples := []Sample{
+		{NodeID: "node-a", Name: "cpu.usage_percent", Value: 10, Timestamp: time.UnixMilli(171000).UTC()},
+		{NodeID: "node-a", Name: "cpu.usage_percent", Value: 20, Timestamp: time.UnixMilli(172000).UTC()},
+	}
+	if err := history.writeBatch(ctx, minuteSamples); err != nil {
+		t.Fatal(err)
+	}
 	if err := history.compact(ctx, time.UnixMilli(180000).UTC()); err != nil {
 		t.Fatal(err)
 	}
