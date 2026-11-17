@@ -212,6 +212,22 @@ func (s *Server) RegisterCommand(action string, h commands.Handler) error {
 
 // SetTelemetryCore registers telemetry commands before the server starts serving.
 func (s *Server) SetTelemetryCore(core *telemetry.Core) error {
+	if core == nil {
+		return errors.New("telemetry core is unavailable")
+	}
+	if err := core.SetObserver(func(samples []telemetry.Sample) {
+		ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+		defer cancel()
+		_, err := s.PublishEvent(ctx, "system.metrics", map[string]any{
+			"samples": samples,
+			"collected_at": time.Now().UTC().Format(time.RFC3339Nano),
+		})
+		if err != nil {
+			s.log.Warn("publish telemetry sample event failed", "error", err)
+		}
+	}); err != nil {
+		return err
+	}
 	return system.RegisterTelemetry(s.registry, core, s.cfg.MessageBus.RequireSubscription)
 }
 
