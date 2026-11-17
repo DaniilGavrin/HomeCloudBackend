@@ -12,6 +12,7 @@ import (
 // Domain code does not import wsserver, avoiding dependency cycles.
 type Dependencies struct {
 	Online              func() int
+	NodeID              func() string
 	RequireSubscription bool
 }
 
@@ -27,6 +28,10 @@ func Register(r *commands.Registry, d Dependencies) {
 		}, nil
 	})
 	r.MustRegister("system.status", func(ctx context.Context, msg commands.Inbound, peer commands.ClientContext) (any, error) {
-		return Status(ctx, d.Online), nil
+		status := Status(ctx, d.Online)
+		if d.NodeID != nil {
+			status["node_id"] = d.NodeID()
+		}
+		return status, nil
 	})
 }
