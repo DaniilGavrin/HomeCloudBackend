@@ -273,6 +273,9 @@ type NotificationsConfig struct {
 	NotifyOn                   []string `yaml:"notify_on"`
 }
 
+// MonitoringConfig retains legacy YAML fields so existing config.yaml files
+// remain readable. Only Enabled and HealthPath are used for the generic /healthz
+// endpoint; metrics settings are deprecated and no longer initialize telemetry.
 type MonitoringConfig struct {
 	Enabled                bool   `yaml:"enabled"`
 	HealthPath             string `yaml:"health_path"`
