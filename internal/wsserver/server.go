@@ -219,51 +219,6 @@ func (s *Server) RegisterCommand(action string, h commands.Handler) error {
 	return s.registry.Register(action, h)
 }
 
-// telemetryMetricGroup maps metric namespaces to independently subscribable
-// live streams. Unknown namespaces remain available on the legacy aggregate topic.
-func telemetryMetricGroup(name string) string {
-	switch {
-	case strings.HasPrefix(name, "cpu"), strings.HasPrefix(name, "cpu_frequency"):
-		return "cpu"
-	case strings.HasPrefix(name, "memory"):
-		return "memory"
-	case strings.HasPrefix(name, "disk"), strings.HasPrefix(name, "smart"):
-		return "disks"
-	case strings.HasPrefix(name, "network"):
-		return "network"
-	case strings.HasPrefix(name, "process"):
-		return "processes"
-	case strings.HasPrefix(name, "services"):
-		return "services"
-	case strings.HasPrefix(name, "gpu"), strings.HasPrefix(name, "sensors"), strings.HasPrefix(name, "fans"),
-		strings.HasPrefix(name, "pressure"), strings.HasPrefix(name, "linux_kernel"),
-		strings.HasPrefix(name, "backend"), strings.HasPrefix(name, "host"),
-		strings.HasPrefix(name, "system"), strings.HasPrefix(name, "network_kernel"),
-		strings.HasPrefix(name, "network_connections"):
-		return "diagnostics"
-	default:
-		return ""
-	}
-}
-
-func telemetryDiagnosticMetric(name string) bool {
-	return strings.HasPrefix(name, "cpu_frequency.") ||
-		strings.HasPrefix(name, "disk_inventory.") ||
-		strings.HasPrefix(name, "disk_kernel.") ||
-		strings.HasPrefix(name, "smart.") ||
-		strings.HasPrefix(name, "network_kernel.") ||
-		strings.HasPrefix(name, "network_connections.")
-}
-
-func telemetryOverviewMetric(name string) bool {
-	switch name {
-	case "cpu.usage_percent", "memory.used_percent", "host.uptime_seconds", "services.available":
-		return true
-	default:
-		return false
-	}
-}
-
 // ServiceAvailability returns local HomeCloud service state using existing
 // Gateway and Storage Service session registries. It contains no credentials.
 func (s *Server) ServiceAvailability() map[string]bool {
