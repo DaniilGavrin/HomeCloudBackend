@@ -36,5 +36,4 @@ func Register(r *commands.Registry, d Dependencies) {
 		}
 		return status, nil
 	})
-	RegisterProcessList(r, d.RequireSubscription)
 }
