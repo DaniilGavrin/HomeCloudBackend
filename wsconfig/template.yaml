@@ -276,6 +276,10 @@ notifications:
 monitoring:
   enabled: true
   health_path: "/healthz"       # Только краткий статус, без приватных данных
+  metrics_endpoint_enabled: false
+  metrics_path: "/metrics"     # Legacy; endpoint is not implemented
+  sample_interval_seconds: 1
+  metrics_retention_days: 14
 
 # ------------------------------------------------------------
 # Журналы и история чувствительных действий
