@@ -127,10 +127,6 @@ func CheckStart(c *Config, root string) error {
 	if c.Monitoring.MetricsEndpointEnabled {
 		return errors.New("metrics_endpoint_enabled: реализация отсутствует, отключите")
 	}
-	if c.Monitoring.SampleIntervalSeconds < 1 || c.Monitoring.SampleIntervalSeconds > 60 ||
-		c.Monitoring.MetricsRetentionDays < 0 || c.Monitoring.MetricsRetentionDays > 14 {
-		return errors.New("monitoring: sample_interval_seconds должен быть в диапазоне 1..60, metrics_retention_days — 0..14")
-	}
 	if c.MessageBus.EventHistory.Enabled {
 		return errors.New("message_bus.event_history: пока не реализовано")
 	}
