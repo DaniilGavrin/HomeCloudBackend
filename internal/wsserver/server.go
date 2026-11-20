@@ -15,8 +15,6 @@ import (
 	"HomeCloudBackend/internal/commands"
 	"HomeCloudBackend/internal/commands/bootstrap"
 	"HomeCloudBackend/internal/connections"
-	"HomeCloudBackend/internal/commands/system"
-	"HomeCloudBackend/internal/telemetry"
 	devicestore "HomeCloudBackend/internal/devices"
 	"HomeCloudBackend/internal/events"
 	"HomeCloudBackend/internal/mediagateway"
@@ -27,6 +25,7 @@ import (
 	"HomeCloudBackend/internal/storageagent"
 	"HomeCloudBackend/internal/streaming"
 	"HomeCloudBackend/wsconfig"
+
 	"github.com/coder/websocket"
 )
 
@@ -52,8 +51,8 @@ type Server struct {
 	heartbeatStop  chan struct{}
 	localNodeID    string
 	storage        *storage.Manager
-	storageAgents *storageagent.Registry
-	deviceStore   *devicestore.Store
+	storageAgents  *storageagent.Registry
+	deviceStore    *devicestore.Store
 }
 
 func New(cfg *wsconfig.Config, db *sql.DB, logger *slog.Logger, storageManagers ...*storage.Manager) *Server {
@@ -95,22 +94,32 @@ func New(cfg *wsconfig.Config, db *sql.DB, logger *slog.Logger, storageManagers 
 		})
 	})
 	bootstrap.Register(s.registry, bootstrap.Dependencies{
-		Online:              s.clients.Online,
-		NodeID:              func() string { return s.localNodeID },
-		ConnectedDevices:    s.clients.List,
+		Online:           s.clients.Online,
+		NodeID:           func() string { return s.localNodeID },
+		ConnectedDevices: s.clients.List,
 		DeviceList: func(ctx context.Context) ([]devicestore.Record, error) {
-			if s.deviceStore == nil { return nil, errors.New("реестр устройств недоступен без базы данных") }
+			if s.deviceStore == nil {
+				return nil, errors.New("реестр устройств недоступен без базы данных")
+			}
 			return s.deviceStore.List(ctx, s.clients.IsOnline)
 		},
 		DeviceRename: func(ctx context.Context, id, name string) (devicestore.Record, error) {
-			if s.deviceStore == nil { return devicestore.Record{}, errors.New("реестр устройств недоступен без базы данных") }
+			if s.deviceStore == nil {
+				return devicestore.Record{}, errors.New("реестр устройств недоступен без базы данных")
+			}
 			item, err := s.deviceStore.Rename(ctx, id, name)
-			if err == nil { item.Online = s.clients.IsOnline(id) }
+			if err == nil {
+				item.Online = s.clients.IsOnline(id)
+			}
 			return item, err
 		},
 		DeviceForget: func(ctx context.Context, id string) error {
-			if s.deviceStore == nil { return errors.New("реестр устройств недоступен без базы данных") }
-			if s.clients.IsOnline(id) { return errors.New("нельзя удалить подключённое устройство") }
+			if s.deviceStore == nil {
+				return errors.New("реестр устройств недоступен без базы данных")
+			}
+			if s.clients.IsOnline(id) {
+				return errors.New("нельзя удалить подключённое устройство")
+			}
 			return s.deviceStore.Forget(ctx, id)
 		},
 		PublishDeviceEvent: func(ctx context.Context, topic string, payload any) error {
@@ -208,60 +217,6 @@ func New(cfg *wsconfig.Config, db *sql.DB, logger *slog.Logger, storageManagers 
 // RegisterCommand registers an application command before serving connections.
 func (s *Server) RegisterCommand(action string, h commands.Handler) error {
 	return s.registry.Register(action, h)
-}
-
-// SetTelemetryCore registers telemetry commands before the server starts serving.
-func (s *Server) SetTelemetryCore(core *telemetry.Core) error {
-	if core == nil {
-		return errors.New("telemetry core is unavailable")
-	}
-	if err := core.SetObserver(func(samples []telemetry.Sample) {
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		defer cancel()
-		collectedAt := time.Now().UTC().Format(time.RFC3339Nano)
-
-		// Keep the v1 aggregate topic for existing clients. New clients should
-		// subscribe to one category topic and receive only that category's delta.
-		if _, err := s.PublishEvent(ctx, "system.metrics", map[string]any{
-			"samples": samples, "collected_at": collectedAt,
-		}); err != nil && s.log != nil {
-			s.log.Warn("publish telemetry sample event failed", "error", err)
-		}
-
-		groups := make(map[string][]telemetry.Sample, 8)
-		overview := make([]telemetry.Sample, 0, 8)
-		for _, sample := range samples {
-			group := telemetryMetricGroup(sample.Name)
-			if group != "" {
-				groups[group] = append(groups[group], sample)
-			}
-			// Diagnostics intentionally includes selected details from other
-			// functional groups; these remain available in their primary tab too.
-			if group != "diagnostics" && telemetryDiagnosticMetric(sample.Name) {
-				groups["diagnostics"] = append(groups["diagnostics"], sample)
-			}
-			if telemetryOverviewMetric(sample.Name) {
-				overview = append(overview, sample)
-			}
-		}
-		for group, batch := range groups {
-			if _, err := s.PublishEvent(ctx, "system.metrics."+group, map[string]any{
-				"samples": batch, "collected_at": collectedAt,
-			}); err != nil && s.log != nil {
-				s.log.Warn("publish grouped telemetry event failed", "group", group, "error", err)
-			}
-		}
-		if len(overview) > 0 {
-			if _, err := s.PublishEvent(ctx, "system.metrics.overview", map[string]any{
-				"samples": overview, "collected_at": collectedAt,
-			}); err != nil && s.log != nil {
-				s.log.Warn("publish overview telemetry event failed", "error", err)
-			}
-		}
-	}); err != nil {
-		return err
-	}
-	return system.RegisterTelemetry(s.registry, core, s.cfg.MessageBus.RequireSubscription)
 }
 
 // telemetryMetricGroup maps metric namespaces to independently subscribable

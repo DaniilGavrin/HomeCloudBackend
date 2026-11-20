@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"HomeCloudBackend/internal/cluster/registry"
-	"HomeCloudBackend/internal/telemetry"
 	"HomeCloudBackend/wsconfig"
 	_ "modernc.org/sqlite"
 )
