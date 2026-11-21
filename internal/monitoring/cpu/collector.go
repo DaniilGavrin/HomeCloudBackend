@@ -345,6 +345,10 @@ func decodeStrictParams(data json.RawMessage, destination any, allowedFields ...
 	return nil
 }
 
+func rejectUnexpectedParams(data json.RawMessage) error {
+	return decodeStrictParams(data, nil)
+}
+
 func parseIntervalFields(sampleInterval, windowMS json.RawMessage) (time.Duration, error) {
 	if len(sampleInterval) > 0 && len(windowMS) > 0 {
 		return 0, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "sample_interval and window_ms cannot be used together", false, nil)
@@ -454,7 +458,10 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 	})
 
 	registerCounter := func(commandID string, read func(Counters) float64) {
-		registry.MustRegister(commandID, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+		registry.MustRegister(commandID, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+			if err := rejectUnexpectedParams(msg.Data); err != nil {
+				return nil, err
+			}
 			snapshot, err := collector.Read(ctx)
 			if err != nil {
 				return nil, err
@@ -480,7 +487,10 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 	registerCounter(MetricGuest, func(c Counters) float64 { return c.GuestSeconds })
 	registerCounter(MetricGuestNice, func(c Counters) float64 { return c.GuestNiceSeconds })
 
-	registry.MustRegister(MetricCoreUser, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+	registry.MustRegister(MetricCoreUser, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+		if err := rejectUnexpectedParams(msg.Data); err != nil {
+			return nil, err
+		}
 		snapshot, err := collector.Read(ctx)
 		if err != nil {
 			return nil, err
@@ -504,12 +514,18 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 		}
 		return items, nil
 	}
-	registry.MustRegister(MetricTopologyCommand, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+	registry.MustRegister(MetricTopologyCommand, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+		if err := rejectUnexpectedParams(msg.Data); err != nil {
+			return nil, err
+		}
 		return readTopology(ctx)
 	})
 	// D.6 retains the public command alias "system.cpu.info"; topology.* remains
 	// the canonical metric namespace used by section 17 and the Metric Registry.
-	registry.MustRegister("system.cpu.info", func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+	registry.MustRegister("system.cpu.info", func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+		if err := rejectUnexpectedParams(msg.Data); err != nil {
+			return nil, err
+		}
 		return readTopology(ctx)
 	})
 
@@ -666,7 +682,10 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 		return reader.ReadPerfMetrics(ctx, target)
 	}
 
-	registry.MustRegister(MetricCStateTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+	registry.MustRegister(MetricCStateTarget, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+		if err := rejectUnexpectedParams(msg.Data); err != nil {
+			return nil, err
+		}
 		return readCStates(ctx)
 	})
 	registry.MustRegister(MetricProcessesTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
@@ -685,16 +704,28 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 		}
 		return filtered, nil
 	})
-	registry.MustRegister(MetricThrottlingTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+	registry.MustRegister(MetricThrottlingTarget, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+		if err := rejectUnexpectedParams(msg.Data); err != nil {
+			return nil, err
+		}
 		return readThrottling(ctx)
 	})
-	registry.MustRegister(MetricPressureTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+	registry.MustRegister(MetricPressureTarget, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+		if err := rejectUnexpectedParams(msg.Data); err != nil {
+			return nil, err
+		}
 		return readPressure(ctx)
 	})
-	registry.MustRegister(MetricTemperature, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+	registry.MustRegister(MetricTemperature, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+		if err := rejectUnexpectedParams(msg.Data); err != nil {
+			return nil, err
+		}
 		return readTemperature(ctx)
 	})
-	registry.MustRegister(MetricPerfTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+	registry.MustRegister(MetricPerfTarget, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+		if err := rejectUnexpectedParams(msg.Data); err != nil {
+			return nil, err
+		}
 		return readPerf(ctx, MetricPerfTarget)
 	})
 
@@ -707,7 +738,10 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 		MetricThrottlePowerPackageEvents,
 	} {
 		id := metricID
-		registry.MustRegister(id, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+		registry.MustRegister(id, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+			if err := rejectUnexpectedParams(msg.Data); err != nil {
+				return nil, err
+			}
 			items, err := readThrottling(ctx)
 			if err != nil {
 				return nil, err
@@ -726,7 +760,10 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 		MetricProcessesRunning, MetricProcessesBlocked, MetricRunQueue,
 	} {
 		id := metricID
-		registry.MustRegister(id, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+		registry.MustRegister(id, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+			if err := rejectUnexpectedParams(msg.Data); err != nil {
+				return nil, err
+			}
 			items, err := readSystemCounters(ctx)
 			if err != nil {
 				return nil, err
@@ -741,7 +778,10 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 	}
 	for _, metricID := range []string{MetricPressureSome, MetricPressureFull} {
 		id := metricID
-		registry.MustRegister(id, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+		registry.MustRegister(id, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+			if err := rejectUnexpectedParams(msg.Data); err != nil {
+				return nil, err
+			}
 			items, err := readPressure(ctx)
 			if err != nil {
 				return nil, err
@@ -756,7 +796,10 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 	}
 	for _, metricID := range allPerfMetricIDs() {
 		id := metricID
-		registry.MustRegister(id, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+		registry.MustRegister(id, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+			if err := rejectUnexpectedParams(msg.Data); err != nil {
+				return nil, err
+			}
 			items, err := readPerf(ctx, id)
 			if err != nil {
 				return nil, err
