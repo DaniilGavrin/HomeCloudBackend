@@ -45,6 +45,21 @@ const (
 
 const defaultSysfsCPUPath = "/sys/devices/system/cpu"
 
+const (
+	MetricCStateTarget = "system.cpu.idle.cstate"
+	MetricThrottlingTarget = "system.cpu.throttling"
+	MetricThrottleThermalCoreEvents = "system.cpu.throttling.thermal.core.events"
+	MetricThrottleThermalCoreDuration = "system.cpu.throttling.thermal.core.duration"
+	MetricThrottleThermalPackageEvents = "system.cpu.throttling.thermal.package.events"
+	MetricThrottleThermalPackageDuration = "system.cpu.throttling.thermal.package.duration"
+	MetricThrottlePowerCoreEvents = "system.cpu.throttling.power.core.events"
+	MetricThrottlePowerPackageEvents = "system.cpu.throttling.power.package.events"
+	MetricInterrupts = "system.cpu.interrupts"
+	MetricContextSwitches = "system.cpu.context_switches"
+)
+
+var ErrMetricUnsupported = errors.New("CPU metric is not supported by this platform or hardware")
+
 // readLinuxFrequency reads the cpufreq policy interface. scaling_cur_freq is
 // intentionally reported as the driver's last/current scaling value; it is
 // not presented as a hardware-instantaneous APERF/MPERF measurement.

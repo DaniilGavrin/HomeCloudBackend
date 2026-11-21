@@ -329,6 +329,83 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 		}
 		return coreTotalUsageItems(before.Cores, after.Cores, time.Now().UTC()), nil
 	})
+	registerExtendedCommands(registry, collector)
+}
+
+func registerExtendedCommands(registry *commands.Registry, collector Collector) {
+	readCStates := func(ctx context.Context) ([]MetricItem, error) {
+		reader, ok := collector.(interface {
+			ReadCStates(context.Context) ([]MetricItem, error)
+		})
+		if !ok {
+			return nil, ErrMetricUnsupported
+		}
+		return reader.ReadCStates(ctx)
+	}
+	readThrottling := func(ctx context.Context) ([]MetricItem, error) {
+		reader, ok := collector.(interface {
+			ReadThrottling(context.Context) ([]MetricItem, error)
+		})
+		if !ok {
+			return nil, ErrMetricUnsupported
+		}
+		return reader.ReadThrottling(ctx)
+	}
+	readSystemCounters := func(ctx context.Context) ([]MetricItem, error) {
+		reader, ok := collector.(interface {
+			ReadSystemCounters(context.Context) ([]MetricItem, error)
+		})
+		if !ok {
+			return nil, ErrMetricUnsupported
+		}
+		return reader.ReadSystemCounters(ctx)
+	}
+
+	registry.MustRegister(MetricCStateTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+		return readCStates(ctx)
+	})
+	registry.MustRegister(MetricThrottlingTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+		return readThrottling(ctx)
+	})
+
+	for _, metricID := range []string{
+		MetricThrottleThermalCoreEvents,
+		MetricThrottleThermalCoreDuration,
+		MetricThrottleThermalPackageEvents,
+		MetricThrottleThermalPackageDuration,
+		MetricThrottlePowerCoreEvents,
+		MetricThrottlePowerPackageEvents,
+	} {
+		id := metricID
+		registry.MustRegister(id, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+			items, err := readThrottling(ctx)
+			if err != nil {
+				return nil, err
+			}
+			for _, item := range items {
+				if item.MetricID == id {
+					return metricResult{Value: item.Value, Unit: item.Unit, ObservedAt: item.ObservedAt}, nil
+				}
+			}
+			return nil, ErrMetricUnsupported
+		})
+	}
+
+	for _, metricID := range []string{MetricInterrupts, MetricContextSwitches} {
+		id := metricID
+		registry.MustRegister(id, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+			items, err := readSystemCounters(ctx)
+			if err != nil {
+				return nil, err
+			}
+			for _, item := range items {
+				if item.MetricID == id {
+					return metricResult{Value: item.Value, Unit: item.Unit, ObservedAt: item.ObservedAt}, nil
+				}
+			}
+			return nil, ErrMetricUnsupported
+		})
+	}
 }
 
 func coreUserItems(cores []CoreCounters, observedAt time.Time) []MetricItem {
