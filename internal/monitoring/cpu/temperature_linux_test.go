@@ -4,7 +4,6 @@ package cpu
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
 )
@@ -79,4 +78,3 @@ func TestReadLinuxCPUTemperaturesReportsUnsupportedWhenNoCPUHwmon(t *testing.T) 
 	}
 }
 
-var _ = os.ErrNotExist
