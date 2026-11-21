@@ -127,6 +127,7 @@ func snapshotFromStats(aggregateStats []cpu.TimesStat, aggregateErr error, perCP
 		result.Issues = append(result.Issues,
 			statusItem(MetricCoreUser, "", status, reason, code, "gopsutil.cpu.times", now),
 			statusItem(MetricCoreTotalUsage, "", status, reason, code, "gopsutil.cpu.times", now),
+			statusItem(MetricCoreUsage, "", status, reason, code, "gopsutil.cpu.times", now),
 		)
 		return result
 	}
@@ -141,6 +142,7 @@ func snapshotFromStats(aggregateStats []cpu.TimesStat, aggregateErr error, perCP
 			result.Issues = append(result.Issues,
 				statusItem(MetricCoreUser, objectID, StatusInvalid, "duplicate_object_id", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", now),
 				statusItem(MetricCoreTotalUsage, objectID, StatusInvalid, "duplicate_object_id", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", now),
+				statusItem(MetricCoreUsage, objectID, StatusInvalid, "duplicate_object_id", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", now),
 			)
 			continue
 		}
@@ -150,6 +152,7 @@ func snapshotFromStats(aggregateStats []cpu.TimesStat, aggregateErr error, perCP
 			result.Issues = append(result.Issues,
 				statusItem(MetricCoreUser, objectID, StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", now),
 				statusItem(MetricCoreTotalUsage, objectID, StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", now),
+				statusItem(MetricCoreUsage, objectID, StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", now),
 			)
 			continue
 		}
@@ -159,6 +162,7 @@ func snapshotFromStats(aggregateStats []cpu.TimesStat, aggregateErr error, perCP
 		result.Issues = append(result.Issues,
 			statusItem(MetricCoreUser, "", StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", now),
 			statusItem(MetricCoreTotalUsage, "", StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", now),
+			statusItem(MetricCoreUsage, "", StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", now),
 		)
 	}
 	return result
@@ -460,7 +464,7 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 		return readCoreUsage(ctx, msg)
 	})
 	// Backward-compatible command alias from the D.6 command registry.
-	registry.MustRegister("system.cpu.core.usage", func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+	registry.MustRegister(MetricCoreUsage, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
 		return readCoreUsage(ctx, msg)
 	})
 	registerExtendedCommands(registry, collector)
@@ -646,19 +650,32 @@ func coreTotalUsageItems(previous, current []CoreCounters, observedAt time.Time)
 	for _, core := range current {
 		before, exists := previousByID[core.ObjectID]
 		if !exists {
-			items = append(items, statusItem(MetricCoreTotalUsage, core.ObjectID, StatusUnknown, "no_baseline", "", "gopsutil.cpu.times", observedAt))
+			items = append(items,
+				statusItem(MetricCoreTotalUsage, core.ObjectID, StatusUnknown, "no_baseline", "", "gopsutil.cpu.times", observedAt),
+				statusItem(MetricCoreUsage, core.ObjectID, StatusUnknown, "no_baseline", "", "gopsutil.cpu.times", observedAt),
+			)
 			continue
 		}
 		value, ok := CalculateTotalUsage(before, core.Counters)
 		if !ok {
-			items = append(items, statusItem(MetricCoreTotalUsage, core.ObjectID, StatusUnavailable, "counter_reset", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", observedAt))
+			items = append(items,
+				statusItem(MetricCoreTotalUsage, core.ObjectID, StatusUnavailable, "counter_reset", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", observedAt),
+				statusItem(MetricCoreUsage, core.ObjectID, StatusUnavailable, "counter_reset", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", observedAt),
+			)
 			continue
 		}
-		items = append(items, MetricItem{
-			MetricID: MetricCoreTotalUsage, ObjectID: core.ObjectID,
-			Value: value, Unit: "percent", ObservedAt: timestamp,
-			Status: StatusValid, SourceID: "gopsutil.cpu.times", WindowMS: EffectiveInterval.Milliseconds(),
-		})
+		items = append(items,
+			MetricItem{
+				MetricID: MetricCoreTotalUsage, ObjectID: core.ObjectID,
+				Value: value, Unit: "percent", ObservedAt: timestamp,
+				Status: StatusValid, SourceID: "gopsutil.cpu.times", WindowMS: EffectiveInterval.Milliseconds(),
+			},
+			MetricItem{
+				MetricID: MetricCoreUsage, ObjectID: core.ObjectID,
+				Value: value, Unit: "percent", ObservedAt: timestamp,
+				Status: StatusValid, SourceID: "gopsutil.cpu.times", WindowMS: EffectiveInterval.Milliseconds(),
+			},
+		)
 	}
 	return items
 }
