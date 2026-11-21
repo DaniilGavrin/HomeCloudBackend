@@ -125,7 +125,7 @@ func TestReadLinuxTopologyFromSysfs(t *testing.T) {
 		t.Fatalf("cpu3 online metric = %#v, found=%v; want false", onlineCPU3, ok)
 	}
 	coreCPU2, ok := findMetric(items, MetricTopologyCoreID, "cpu2")
-	if !ok || coreCPU2.Value != "1" {
+	if !ok || coreCPU2.Value != 1 {
 		t.Fatalf("cpu2 core ID = %#v, found=%v; want 1", coreCPU2, ok)
 	}
 }
