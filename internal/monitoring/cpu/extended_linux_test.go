@@ -59,20 +59,24 @@ func TestReadLinuxThrottlingDeduplicatesSMTSiblingsAndPackages(t *testing.T) {
 		throttle := filepath.Join(base, "thermal_throttle")
 		writeSysfsTestFile(t, filepath.Join(throttle, "core_throttle_count"), "7")
 		writeSysfsTestFile(t, filepath.Join(throttle, "core_throttle_total_time_ms"), "3")
+		writeSysfsTestFile(t, filepath.Join(throttle, "core_power_limit_count"), "4")
 		writeSysfsTestFile(t, filepath.Join(throttle, "package_throttle_count"), "11")
 		writeSysfsTestFile(t, filepath.Join(throttle, "package_throttle_total_time_ms"), "5")
+		writeSysfsTestFile(t, filepath.Join(throttle, "package_power_limit_count"), "6")
 	}
 	items, err := readLinuxThrottling(context.Background(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 6 {
-		t.Fatalf("throttling items = %d, want 6 (2 cores + 1 package, count and duration): %#v", len(items), items)
+	if len(items) != 15 {
+		t.Fatalf("throttling items = %d, want 15 (per-CPU core counters and one package copy): %#v", len(items), items)
 	}
-	if !hasThrottleObject(items, MetricThrottleThermalCoreEvents, "package0/core0") ||
-		!hasThrottleObject(items, MetricThrottleThermalCoreEvents, "package0/core1") ||
-		!hasThrottleObject(items, MetricThrottleThermalPackageEvents, "package0") {
-		t.Fatalf("missing deduplicated core/package objects: %#v", items)
+	if !hasThrottleObject(items, MetricThrottleThermalCoreEvents, "cpu0") ||
+		!hasThrottleObject(items, MetricThrottleThermalCoreEvents, "cpu1") ||
+		!hasThrottleObject(items, MetricThrottleThermalPackageEvents, "package0") ||
+		!hasThrottleObject(items, MetricThrottlePowerCoreEvents, "cpu0") ||
+		!hasThrottleObject(items, MetricThrottlePowerPackageEvents, "package0") {
+		t.Fatalf("missing per-CPU or deduplicated package counters: %#v", items)
 	}
 }
 
