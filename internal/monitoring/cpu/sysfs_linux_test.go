@@ -178,3 +178,21 @@ func itoa(value int) string {
 	}
 	return string(buf[i:])
 }
+
+func TestFrequencyPolicyCPUResolution(t *testing.T) {
+	root := t.TempDir()
+	policy0 := filepath.Join(root, "cpufreq", "policy0")
+	policy1 := filepath.Join(root, "cpufreq", "policy1")
+	writeSysfsTestFile(t, filepath.Join(policy0, "affected_cpus"), "0 1")
+	writeSysfsTestFile(t, filepath.Join(policy1, "related_cpus"), "2-3")
+
+	if got := frequencyPoliciesForCPU(root, 1); len(got) != 1 || got[0] != "policy0" {
+		t.Fatalf("policies for cpu1 = %v, want [policy0]", got)
+	}
+	if got := cpusForFrequencyPolicy(root, "policy1"); len(got) != 2 || got[0] != 2 || got[1] != 3 {
+		t.Fatalf("CPUs for policy1 = %v, want [2 3]", got)
+	}
+	if isFrequencyDomainID("cpu1") || !isFrequencyDomainID("policy1") {
+		t.Fatal("frequency-domain validation accepted invalid policy ID or rejected policy1")
+	}
+}
