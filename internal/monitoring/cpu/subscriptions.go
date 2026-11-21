@@ -107,6 +107,7 @@ func validTarget(target string) bool {
 		MetricThrottleThermalCoreEvents, MetricThrottleThermalCoreDuration,
 		MetricThrottleThermalPackageEvents, MetricThrottleThermalPackageDuration,
 		MetricThrottlePowerCoreEvents, MetricThrottlePowerPackageEvents,
+		MetricThrottlePowerCoreDuration, MetricThrottlePowerPackageDuration, MetricThrottleActive,
 		MetricProcessesTarget, MetricForks, MetricProcessesRunning, MetricProcessesBlocked,
 		MetricRunQueue, MetricPressureTarget, MetricPressureSome, MetricPressureFull,
 		MetricPerfTarget, MetricPerfCycles, MetricPerfRefCycles, MetricPerfInstructions,
