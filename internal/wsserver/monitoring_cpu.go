@@ -100,7 +100,7 @@ func (s *Server) handleMonitoringCommand(ctx context.Context, message Inbound, p
 		return s.commandError(message.CorrelationID, payload.CommandID, "RESULT_ENCODING_FAILED", "internal", "failed to encode command result", false)
 	}
 	var metric map[string]any
-	if len(result.Data) > 0 && json.Unmarshal(result.Data, &metric) == nil && metric != nil {
+	if len(result.Data) > 0 && json.Unmarshal(encoded, &metric) == nil && metric != nil {
 		resultPayload := make(map[string]any)
 		if value, ok := metric["value"]; ok {
 			resultPayload["value"] = value
