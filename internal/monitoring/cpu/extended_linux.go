@@ -16,19 +16,6 @@ import (
 )
 
 const (
-	MetricCStateTarget = "system.cpu.idle.cstate"
-	MetricThrottlingTarget = "system.cpu.throttling"
-
-	MetricThrottleThermalCoreEvents = "system.cpu.throttling.thermal.core.events"
-	MetricThrottleThermalCoreDuration = "system.cpu.throttling.thermal.core.duration"
-	MetricThrottleThermalPackageEvents = "system.cpu.throttling.thermal.package.events"
-	MetricThrottleThermalPackageDuration = "system.cpu.throttling.thermal.package.duration"
-
-	MetricInterrupts = "system.cpu.interrupts"
-	MetricContextSwitches = "system.cpu.context_switches"
-)
-
-const (
 	defaultProcStatPath = "/proc/stat"
 	cStateTimeUnitScale = uint64(time.Microsecond)
 	throttleTimeUnitScale = uint64(time.Millisecond)
@@ -79,7 +66,7 @@ func readLinuxCStates(ctx context.Context, cpuSysfsPath string) ([]MetricItem, e
 		if err != nil || microseconds > math.MaxInt64/uint64(time.Microsecond) {
 			continue
 		}
-		cpuDir := filepath.Dir(filepath.Dir(filepath.Dir(statePath)))
+		cpuDir := filepath.Dir(filepath.Dir(statePath))
 		cpuID := filepath.Base(cpuDir)
 		stateID := filepath.Base(statePath)
 		suffix := metricSlug(name)
