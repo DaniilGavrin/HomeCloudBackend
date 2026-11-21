@@ -302,11 +302,11 @@ func TestProcessGroupSubscriptionPublishesOnlyProcessMetrics(t *testing.T) {
 		t.Fatalf("payload type = %T, want map", delivered.Payload)
 	}
 	items, ok := payload["items"].([]MetricItem)
-	if !ok || len(items) != 2 {
-		t.Fatalf("process group items = %#v, want running and blocked", payload["items"])
+	if !ok || len(items) != 3 {
+		t.Fatalf("process group items = %#v, want forks, running and blocked", payload["items"])
 	}
 	for _, item := range items {
-		if item.MetricID != MetricProcessesRunning && item.MetricID != MetricProcessesBlocked {
+		if item.MetricID != MetricForks && item.MetricID != MetricProcessesRunning && item.MetricID != MetricProcessesBlocked {
 			t.Errorf("unexpected metric %q in process group", item.MetricID)
 		}
 	}
