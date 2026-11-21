@@ -316,6 +316,11 @@ func (m *Manager) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-m.wake:
+			// A newly created subscription must receive its own capability error,
+			// even when another subscriber already encountered the same failure.
+			lastCStateFailed = false
+			lastThrottlingFailed = false
+			lastSystemCountersFailed = false
 			if !m.hasSubscribers() {
 				previous = nil
 				lastCollectionFailed = false
