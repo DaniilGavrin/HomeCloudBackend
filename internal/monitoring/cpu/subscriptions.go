@@ -721,7 +721,7 @@ func (m *Manager) publish(ctx context.Context, items []MetricItem) {
 			for _, item := range items {
 				switch {
 				case sub.target == MetricFrequencyTarget:
-					if item.MetricID == MetricCoreFrequency || strings.HasPrefix(item.MetricID, MetricFrequencyTarget+".") {
+					if item.MetricID == MetricFrequencyTarget || item.MetricID == MetricCoreFrequency || strings.HasPrefix(item.MetricID, MetricFrequencyTarget+".") {
 						filtered = append(filtered, item)
 					}
 				case sub.target == MetricCStateTarget, sub.target == MetricThrottlingTarget,
