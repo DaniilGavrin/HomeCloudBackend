@@ -27,6 +27,9 @@ type Outbound struct {
 	CorrelationID string `json:"correlation_id,omitempty"`
 	NodeID        string `json:"node_id,omitempty"`
 	Error         string `json:"error,omitempty"`
+	ErrorCode     string `json:"-"`
+	ErrorCategory string `json:"-"`
+	Retryable     bool   `json:"-"`
 	Data          any    `json:"data,omitempty"`
 	Payload       any    `json:"payload,omitempty"`
 }
