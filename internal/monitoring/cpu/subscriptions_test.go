@@ -60,3 +60,15 @@ func TestSubscriptionValidation(t *testing.T) {
 		t.Fatalf("invalid interval error = %v", err)
 	}
 }
+
+func TestNewCPUCounterTargetsAreAccepted(t *testing.T) {
+	manager := NewManager(testCollector{}, nil)
+	defer manager.Close()
+	deliver := func(context.Context, commands.Outbound) error { return nil }
+
+	for _, target := range []string{MetricNice, MetricIdle, MetricIOWait, MetricIRQ} {
+		if _, err := manager.Subscribe(1, target, EffectiveInterval, deliver); err != nil {
+			t.Errorf("Subscribe(%q): %v", target, err)
+		}
+	}
+}

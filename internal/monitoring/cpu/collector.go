@@ -14,19 +14,26 @@ import (
 
 const (
 	MetricTotalUsage = "system.cpu.totalusage"
-	MetricUser = "system.cpu.user"
-	MetricSystem = "system.cpu.system"
-	Target = "system.cpu"
-	DefaultWindow = time.Second
-	minWindow = 100 * time.Millisecond
-	maxWindow = 10 * time.Second
+	MetricUser       = "system.cpu.user"
+	MetricSystem     = "system.cpu.system"
+	MetricNice       = "system.cpu.nice"
+	MetricIdle       = "system.cpu.idle"
+	MetricIOWait     = "system.cpu.iowait"
+	MetricIRQ        = "system.cpu.irq"
+	Target           = "system.cpu"
+	DefaultWindow    = time.Second
+	minWindow        = 100 * time.Millisecond
+	maxWindow        = 10 * time.Second
 )
 
 type Counters struct {
-	TotalSeconds float64
-	IdleSeconds float64
-	UserSeconds float64
+	TotalSeconds  float64
+	IdleSeconds   float64
+	UserSeconds   float64
 	SystemSeconds float64
+	NiceSeconds   float64
+	IOWaitSeconds float64
+	IRQSeconds    float64
 }
 
 type Collector interface {
@@ -50,14 +57,21 @@ func (c *SystemCollector) Read(ctx context.Context) (Counters, error) {
 	for _, stat := range stats {
 		result.UserSeconds += stat.User
 		result.SystemSeconds += stat.System
+		result.NiceSeconds += stat.Nice
 		result.IdleSeconds += stat.Idle
+		result.IOWaitSeconds += stat.Iowait
+		result.IRQSeconds += stat.Irq
 		result.TotalSeconds += stat.User + stat.System + stat.Nice + stat.Idle +
 			stat.Iowait + stat.Irq + stat.Softirq + stat.Steal + stat.Guest + stat.GuestNice
 	}
-	if math.IsNaN(result.TotalSeconds) || math.IsInf(result.TotalSeconds, 0) ||
-		math.IsNaN(result.UserSeconds) || math.IsInf(result.UserSeconds, 0) ||
-		math.IsNaN(result.SystemSeconds) || math.IsInf(result.SystemSeconds, 0) {
-		return Counters{}, errors.New("CPU counters contain non-finite values")
+	values := []float64{
+		result.TotalSeconds, result.IdleSeconds, result.UserSeconds, result.SystemSeconds,
+		result.NiceSeconds, result.IOWaitSeconds, result.IRQSeconds,
+	}
+	for _, value := range values {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return Counters{}, errors.New("CPU counters contain non-finite values")
+		}
 	}
 	return result, nil
 }
@@ -111,8 +125,8 @@ func counterNanoseconds(seconds float64) int64 {
 }
 
 type metricResult struct {
-	Value any `json:"value"`
-	Unit string `json:"unit"`
+	Value      any    `json:"value"`
+	Unit       string `json:"unit"`
 	ObservedAt string `json:"observed_at"`
 }
 
@@ -137,19 +151,19 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 		return metricResult{Value: value, Unit: "percent", ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
 	})
 
-	registerCounter := func(commandID, field string) {
+	registerCounter := func(commandID string, read func(Counters) float64) {
 		registry.MustRegister(commandID, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
 			counters, err := collector.Read(ctx)
 			if err != nil {
 				return nil, err
 			}
-			value := counters.SystemSeconds
-			if field == "user" {
-				value = counters.UserSeconds
-			}
-			return metricResult{Value: counterNanoseconds(value), Unit: "ns", ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
+			return metricResult{Value: counterNanoseconds(read(counters)), Unit: "ns", ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
 		})
 	}
-	registerCounter(MetricUser, "user")
-	registerCounter(MetricSystem, "system")
+	registerCounter(MetricUser, func(c Counters) float64 { return c.UserSeconds })
+	registerCounter(MetricSystem, func(c Counters) float64 { return c.SystemSeconds })
+	registerCounter(MetricNice, func(c Counters) float64 { return c.NiceSeconds })
+	registerCounter(MetricIdle, func(c Counters) float64 { return c.IdleSeconds })
+	registerCounter(MetricIOWait, func(c Counters) float64 { return c.IOWaitSeconds })
+	registerCounter(MetricIRQ, func(c Counters) float64 { return c.IRQSeconds })
 }

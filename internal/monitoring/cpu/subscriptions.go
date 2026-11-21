@@ -58,7 +58,7 @@ func NewManager(collector Collector, nodeID func() string) *Manager {
 
 func validTarget(target string) bool {
 	switch target {
-	case Target, MetricTotalUsage, MetricUser, MetricSystem:
+	case Target, MetricTotalUsage, MetricUser, MetricSystem, MetricNice, MetricIdle, MetricIOWait, MetricIRQ:
 		return true
 	default:
 		return false
@@ -245,6 +245,10 @@ func itemsFor(current Counters, previous *Counters, observedAt time.Time) []Metr
 	items := []MetricItem{
 		{MetricID: MetricUser, Value: counterNanoseconds(current.UserSeconds), Unit: "ns", ObservedAt: timestamp},
 		{MetricID: MetricSystem, Value: counterNanoseconds(current.SystemSeconds), Unit: "ns", ObservedAt: timestamp},
+		{MetricID: MetricNice, Value: counterNanoseconds(current.NiceSeconds), Unit: "ns", ObservedAt: timestamp},
+		{MetricID: MetricIdle, Value: counterNanoseconds(current.IdleSeconds), Unit: "ns", ObservedAt: timestamp},
+		{MetricID: MetricIOWait, Value: counterNanoseconds(current.IOWaitSeconds), Unit: "ns", ObservedAt: timestamp},
+		{MetricID: MetricIRQ, Value: counterNanoseconds(current.IRQSeconds), Unit: "ns", ObservedAt: timestamp},
 	}
 	if previous != nil {
 		if value, ok := CalculateTotalUsage(*previous, current); ok {
