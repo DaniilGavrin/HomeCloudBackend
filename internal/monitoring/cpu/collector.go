@@ -801,7 +801,10 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 		}
 		return readCStates(ctx)
 	})
-	registry.MustRegister(MetricProcessesTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+	registry.MustRegister(MetricProcessesTarget, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+		if err := rejectUnexpectedParams(msg.Data); err != nil {
+			return nil, err
+		}
 		items, err := readSystemCounters(ctx)
 		if err != nil {
 			return nil, err
