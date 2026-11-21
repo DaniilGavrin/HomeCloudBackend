@@ -50,10 +50,11 @@ func TestReadLinuxFrequencyPolicies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 7 {
-		t.Fatalf("frequency items = %d, want 7 including two per-core frequency values: %#v", len(items), items)
+	if len(items) != 8 {
+		t.Fatalf("frequency items = %d, want 8 including canonical/current aliases and two per-core values: %#v", len(items), items)
 	}
 	expected := map[string]any{
+		MetricFrequencyTarget: int64(1800000000),
 		MetricFrequencyCurrent: int64(1800000000),
 		MetricFrequencyMin: int64(800000000),
 		MetricFrequencyMax: int64(3200000000),
