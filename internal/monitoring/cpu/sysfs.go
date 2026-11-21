@@ -133,9 +133,9 @@ func readLinuxFrequency(ctx context.Context, cpuSysfsPath string) ([]MetricItem,
 				SourceID: "linux.sysfs.cpufreq",
 			})
 		}
-		appendFrequency(MetricFrequencyCurrent, "scaling_cur_freq", "Hz", "")
-		appendFrequency(MetricFrequencyMin, "cpuinfo_min_freq", "Hz", "")
-		appendFrequency(MetricFrequencyMax, "cpuinfo_max_freq", "Hz", "")
+		appendFrequency(MetricFrequencyCurrent, "scaling_cur_freq", "Hz", "cpuinfo_cur_freq")
+		appendFrequency(MetricFrequencyMin, "cpuinfo_min_freq", "Hz", "scaling_min_freq")
+		appendFrequency(MetricFrequencyMax, "cpuinfo_max_freq", "Hz", "scaling_max_freq")
 		appendFrequency(MetricFrequencyBase, "base_frequency", "Hz", "cpuinfo_base_freq")
 		appendFrequency(MetricFrequencyGovernor, "scaling_governor", "string", "")
 
