@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"sort"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -116,8 +117,11 @@ func cpuTemperatureObjectID(driverName, label, index string) string {
 		return "package" + match[1]
 	}
 	lower := strings.ToLower(strings.TrimSpace(label))
-	if strings.Contains(lower, "cpu") || strings.Contains(lower, "tctl") || strings.Contains(lower, "tdie") {
-		return "package0"
+	if strings.Contains(lower, "tctl") || strings.Contains(lower, "tdie") {
+		return "package0/" + metricSlug(label)
+	}
+	if strings.Contains(lower, "cpu") {
+		return "package0/" + metricSlug(label)
 	}
 	if strings.TrimSpace(label) == "" {
 		return fmt.Sprintf("%s/temp%s", metricSlug(driverName), index)
