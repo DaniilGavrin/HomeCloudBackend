@@ -209,14 +209,6 @@ func counterNanoseconds(seconds float64) int64 {
 	return int64(math.Round(seconds * float64(time.Second)))
 }
 
-type MetricItem struct {
-	MetricID   string `json:"metric_id"`
-	ObjectID   string `json:"object_id,omitempty"`
-	Value      any    `json:"value"`
-	Unit       string `json:"unit"`
-	ObservedAt string `json:"observed_at"`
-}
-
 type metricResult struct {
 	Value      any    `json:"value"`
 	Unit       string `json:"unit"`
