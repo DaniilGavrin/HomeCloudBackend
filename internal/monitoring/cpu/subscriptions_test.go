@@ -258,6 +258,39 @@ func TestExtendedCPUSubscriptionsPublishAndFilterMetrics(t *testing.T) {
 	}
 }
 
+func TestProcessGroupSubscriptionPublishesOnlyProcessMetrics(t *testing.T) {
+	manager := NewManager(extendedTestCollector{}, func() string { return "node-test" })
+	defer manager.Close()
+
+	var delivered commands.Outbound
+	deliver := func(_ context.Context, message commands.Outbound) error {
+		delivered = message
+		return nil
+	}
+	if _, err := manager.Subscribe(1, MetricProcessesTarget, EffectiveInterval, deliver); err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	failed := false
+	manager.publishSystemCounters(context.Background(), &failed)
+	if failed {
+		t.Fatal("process counter provider unexpectedly failed")
+	}
+
+	payload, ok := delivered.Payload.(map[string]any)
+	if !ok {
+		t.Fatalf("payload type = %T, want map", delivered.Payload)
+	}
+	items, ok := payload["items"].([]MetricItem)
+	if !ok || len(items) != 2 {
+		t.Fatalf("process group items = %#v, want running and blocked", payload["items"])
+	}
+	for _, item := range items {
+		if item.MetricID != MetricProcessesRunning && item.MetricID != MetricProcessesBlocked {
+			t.Errorf("unexpected metric %q in process group", item.MetricID)
+		}
+	}
+}
+
 func TestUnsupportedExtendedProviderReportsCapabilityError(t *testing.T) {
 	manager := NewManager(testCollector{}, func() string { return "node-test" })
 	defer manager.Close()
