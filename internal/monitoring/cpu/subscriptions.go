@@ -723,7 +723,8 @@ func (m *Manager) publish(ctx context.Context, items []MetricItem) {
 				case sub.target == MetricCStateTarget, sub.target == MetricThrottlingTarget,
 					sub.target == MetricProcessesTarget, sub.target == MetricPressureTarget,
 					sub.target == MetricPerfTarget:
-					if item.MetricID == sub.target || strings.HasPrefix(item.MetricID, sub.target+".") {
+					if item.MetricID == sub.target || strings.HasPrefix(item.MetricID, sub.target+".") ||
+						(sub.target == MetricProcessesTarget && item.MetricID == MetricForks) {
 						filtered = append(filtered, item)
 					}
 				default:
