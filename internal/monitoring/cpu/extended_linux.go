@@ -123,11 +123,10 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 	}
 	sort.Ints(cpuIDs)
 
-	seenCoreEvents := make(map[string]bool)
-	seenCoreDuration := make(map[string]bool)
 	seenPackageEvents := make(map[string]bool)
 	seenPackageDuration := make(map[string]bool)
-	items := make([]MetricItem, 0, len(cpuIDs)*4)
+	seenPackagePowerEvents := make(map[string]bool)
+	items := make([]MetricItem, 0, len(cpuIDs)*5)
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 
 	for _, id := range cpuIDs {
@@ -138,26 +137,19 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 		cpuPath := filepath.Join(cpuSysfsPath, cpuName)
 		topologyPath := filepath.Join(cpuPath, "topology")
 		packageID, packageErr := readSysfsValue(filepath.Join(topologyPath, "physical_package_id"))
-		coreID, coreErr := readSysfsValue(filepath.Join(topologyPath, "core_id"))
 		throttlePath := filepath.Join(cpuPath, "thermal_throttle")
 
-		// Never label a logical-CPU counter as core/package data when sysfs
-		// does not expose the topology needed to establish that scope.
-		if packageErr == nil && packageID != "" && coreErr == nil && coreID != "" {
-			coreKey := packageID + ":" + coreID
-			coreObjectID := "package" + packageID + "/core" + coreID
-			if !seenCoreEvents[coreKey] {
-				appendThrottleCounter(&items, throttlePath, "core_throttle_count",
-					MetricThrottleThermalCoreEvents, coreObjectID, "count", 1, now)
-				seenCoreEvents[coreKey] = hasThrottleObject(items, MetricThrottleThermalCoreEvents, coreObjectID)
-			}
-			if !seenCoreDuration[coreKey] {
-				appendThrottleCounter(&items, throttlePath, "core_throttle_total_time_ms",
-					MetricThrottleThermalCoreDuration, coreObjectID, "ns", uint64(time.Millisecond), now)
-				seenCoreDuration[coreKey] = hasThrottleObject(items, MetricThrottleThermalCoreDuration, coreObjectID)
-			}
-		}
+		// The kernel keeps core-level throttle/power counters per logical CPU.
+		// Preserve each CPU's own counters instead of collapsing SMT siblings.
+		appendThrottleCounter(&items, throttlePath, "core_throttle_count",
+			MetricThrottleThermalCoreEvents, cpuName, "count", 1, now)
+		appendThrottleCounter(&items, throttlePath, "core_throttle_total_time_ms",
+			MetricThrottleThermalCoreDuration, cpuName, "ns", uint64(time.Millisecond), now)
+		appendThrottleCounter(&items, throttlePath, "core_power_limit_count",
+			MetricThrottlePowerCoreEvents, cpuName, "count", 1, now)
 
+		// Package-level counters are broadcast to every CPU in the package.
+		// Emit one copy per package to avoid multiplying the same counter.
 		if packageErr == nil && packageID != "" {
 			packageObjectID := "package" + packageID
 			if !seenPackageEvents[packageID] {
@@ -169,6 +161,11 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 				appendThrottleCounter(&items, throttlePath, "package_throttle_total_time_ms",
 					MetricThrottleThermalPackageDuration, packageObjectID, "ns", uint64(time.Millisecond), now)
 				seenPackageDuration[packageID] = hasThrottleObject(items, MetricThrottleThermalPackageDuration, packageObjectID)
+			}
+			if !seenPackagePowerEvents[packageID] {
+				appendThrottleCounter(&items, throttlePath, "package_power_limit_count",
+					MetricThrottlePowerPackageEvents, packageObjectID, "count", 1, now)
+				seenPackagePowerEvents[packageID] = hasThrottleObject(items, MetricThrottlePowerPackageEvents, packageObjectID)
 			}
 		}
 	}
