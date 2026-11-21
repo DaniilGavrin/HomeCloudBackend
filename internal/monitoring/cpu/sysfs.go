@@ -384,33 +384,36 @@ func readSysfsValue(path string) (string, error) {
 }
 
 func parseCPUList(value string) ([]int, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
+	tokens := strings.Fields(value)
+	if len(tokens) == 0 {
 		return nil, errors.New("CPU list is empty")
 	}
+	result := make([]int, 0)
 	seen := make(map[int]bool)
-	var result []int
-	for _, part := range strings.Split(value, ",") {
-		bounds := strings.Split(strings.TrimSpace(part), "-")
-		if len(bounds) < 1 || len(bounds) > 2 {
-			return nil, fmt.Errorf("invalid CPU range %q", part)
-		}
-		start, err := strconv.Atoi(bounds[0])
-		if err != nil || start < 0 {
-			return nil, fmt.Errorf("invalid CPU index %q", bounds[0])
-		}
-		end := start
-		if len(bounds) == 2 {
-			end, err = strconv.Atoi(bounds[1])
-			if err != nil || end < start {
-				return nil, fmt.Errorf("invalid CPU range %q", part)
+	for _, token := range tokens {
+		for _, part := range strings.Split(token, ",") {
+			if part == "" {
+				return nil, fmt.Errorf("invalid CPU list segment %q", part)
 			}
-		}
-		if end-start > 4096 {
-			return nil, fmt.Errorf("CPU range %q is too large", part)
-		}
-		for id := start; id <= end; id++ {
-			if !seen[id] {
+			bounds := strings.Split(part, "-")
+			if len(bounds) > 2 {
+				return nil, fmt.Errorf("invalid CPU list segment %q", part)
+			}
+			start, err := strconv.Atoi(bounds[0])
+			if err != nil || start < 0 {
+				return nil, fmt.Errorf("invalid CPU list segment %q", part)
+			}
+			end := start
+			if len(bounds) == 2 {
+				end, err = strconv.Atoi(bounds[1])
+				if err != nil || end < start || end-start > 4096 {
+					return nil, fmt.Errorf("invalid CPU list range %q", part)
+				}
+			}
+			for id := start; id <= end; id++ {
+				if seen[id] {
+					return nil, fmt.Errorf("duplicate CPU id %d", id)
+				}
 				seen[id] = true
 				result = append(result, id)
 			}
