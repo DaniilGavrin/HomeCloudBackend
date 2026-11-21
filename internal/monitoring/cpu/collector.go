@@ -231,7 +231,7 @@ func (c *SystemCollector) TotalUsage(ctx context.Context, window time.Duration) 
 		return 0, err
 	}
 	if !aggregateAvailable(after) {
-		return 0, errors.New("aggregate CPU counters are unavailable")
+		return 0, commands.NewClassifiedError("SOURCE_UNAVAILABLE", "source", "aggregate CPU counters are unavailable", true, nil)
 	}
 	value, ok := CalculateTotalUsage(before.Counters, after.Counters)
 	if !ok {
@@ -435,7 +435,7 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 				WindowMS int64 `json:"window_ms"`
 			}
 			if err := json.Unmarshal(msg.Data, &params); err != nil {
-				return nil, fmt.Errorf("invalid command params: %w", err)
+				return nil, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "invalid command parameters", false, err)
 			}
 			if params.WindowMS != 0 {
 				window = time.Duration(params.WindowMS) * time.Millisecond
