@@ -326,7 +326,7 @@ type MetricItem struct {
 
 func itemsFor(current Snapshot, previous *Snapshot, observedAt time.Time) []MetricItem {
 	timestamp := observedAt.UTC().Format(time.RFC3339Nano)
-	items := make([]MetricItem, 0, 16+len(current.Cores)*2+len(current.Issues))
+	items := make([]MetricItem, 0, 16+len(current.Cores)*3+len(current.Issues))
 	if aggregateAvailable(current) {
 		c := current.Counters
 		items = append(items,
@@ -343,11 +343,12 @@ func itemsFor(current Snapshot, previous *Snapshot, observedAt time.Time) []Metr
 		)
 		if previous != nil && aggregateAvailable(*previous) {
 			if value, ok := CalculateTotalUsage(previous.Counters, c); ok {
-				windowMS := EffectiveInterval.Milliseconds()
-				if !previous.CollectedAt.IsZero() && !current.CollectedAt.IsZero() {
-					windowMS = current.CollectedAt.Sub(previous.CollectedAt).Milliseconds()
+				windowMS := sampleWindowMilliseconds(*previous, current)
+				if windowMS <= 0 {
+					items = append(items, statusItem(MetricTotalUsage, "", StatusInvalid, "invalid_window", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", observedAt))
+				} else {
+					items = append(items, MetricItem{MetricID: MetricTotalUsage, Value: value, Unit: "percent", ObservedAt: timestamp, WindowMS: windowMS, SourceID: "gopsutil.cpu.times", Status: StatusValid})
 				}
-				items = append(items, MetricItem{MetricID: MetricTotalUsage, Value: value, Unit: "percent", ObservedAt: timestamp, WindowMS: windowMS, SourceID: "gopsutil.cpu.times", Status: StatusValid})
 			} else {
 				items = append(items, statusItem(MetricTotalUsage, "", StatusUnavailable, "counter_reset", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", observedAt))
 			}
@@ -365,7 +366,18 @@ func itemsFor(current Snapshot, previous *Snapshot, observedAt time.Time) []Metr
 	}
 	items = append(items, coreUserItems(current.Cores, observedAt)...)
 	if previous != nil {
-		items = append(items, coreTotalUsageItems(previous.Cores, current.Cores, observedAt)...)
+		coreItems := coreTotalUsageItems(previous.Cores, current.Cores, observedAt)
+		windowMS := sampleWindowMilliseconds(*previous, current)
+		for i := range coreItems {
+			if coreItems[i].Status == StatusValid {
+				if windowMS <= 0 {
+					coreItems[i] = statusItem(coreItems[i].MetricID, coreItems[i].ObjectID, StatusInvalid, "invalid_window", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", observedAt)
+				} else {
+					coreItems[i].WindowMS = windowMS
+				}
+			}
+		}
+		items = append(items, coreItems...)
 	} else {
 		for _, core := range current.Cores {
 			items = append(items,
@@ -377,6 +389,13 @@ func itemsFor(current Snapshot, previous *Snapshot, observedAt time.Time) []Metr
 	items = append(items, current.Issues...)
 	return items
 }
+func sampleWindowMilliseconds(previous, current Snapshot) int64 {
+	if previous.CollectedAt.IsZero() || current.CollectedAt.IsZero() {
+		return EffectiveInterval.Milliseconds()
+	}
+	return current.CollectedAt.Sub(previous.CollectedAt).Milliseconds()
+}
+
 func (m *Manager) publishCStates(ctx context.Context, alreadyFailed *bool) {
 	if !m.hasCStateSubscribers() {
 		*alreadyFailed = false
