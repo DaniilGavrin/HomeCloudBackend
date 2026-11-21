@@ -66,7 +66,8 @@ func validTarget(target string) bool {
 		MetricFrequencyBase, MetricFrequencyGovernor,
 		MetricCStateTarget, MetricThrottlingTarget, MetricInterrupts, MetricContextSwitches,
 		MetricThrottleThermalCoreEvents, MetricThrottleThermalCoreDuration,
-		MetricThrottleThermalPackageEvents, MetricThrottleThermalPackageDuration:
+		MetricThrottleThermalPackageEvents, MetricThrottleThermalPackageDuration,
+		MetricThrottlePowerCoreEvents, MetricThrottlePowerPackageEvents:
 		return true
 	default:
 		return strings.HasPrefix(target, MetricCStateTarget+".")
