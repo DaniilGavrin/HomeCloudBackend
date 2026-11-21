@@ -20,6 +20,18 @@ func TestCalculateTotalUsage(t *testing.T) {
 	}
 }
 
+func TestCalculateTotalUsageExcludesIOWait(t *testing.T) {
+	previous := Counters{TotalSeconds: 100, IdleSeconds: 60, IOWaitSeconds: 10}
+	current := Counters{TotalSeconds: 110, IdleSeconds: 65, IOWaitSeconds: 13}
+	got, ok := CalculateTotalUsage(previous, current)
+	if !ok {
+		t.Fatal("expected a valid interval")
+	}
+	if got != 20 {
+		t.Fatalf("usage = %v, want 20; I/O wait is reported separately and excluded from busy time", got)
+	}
+}
+
 func TestCalculateTotalUsageRejectsInvalidBaseline(t *testing.T) {
 	tests := []struct {
 		name string
