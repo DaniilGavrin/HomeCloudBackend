@@ -10,7 +10,6 @@ import (
 	"math"
 	"os"
 	"sort"
-	"strings"
 	"time"
 	"unsafe"
 
@@ -52,9 +51,10 @@ func (c *SystemCollector) ReadPerfMetrics(ctx context.Context) ([]MetricItem, er
 
 	cpus, err := onlineCPUList()
 	if err != nil {
-		if c.perf == nil {
-			c.perf = newPerfReader(nil, err)
+		if c.perf != nil {
+			c.perf.close()
 		}
+		c.perf = newPerfReader(nil, err)
 		return c.perf.read(ctx)
 	}
 	if c.perf == nil || !sameCPUList(c.perf.cpus, cpus) {
@@ -185,7 +185,7 @@ func (r *perfReader) read(ctx context.Context) ([]MetricItem, error) {
 				}
 				continue
 			}
-			if math.MaxUint64-total < value {
+			if ^uint64(0)-total < value {
 				firstErr = errors.New("PMU counter aggregate overflow")
 				failures++
 				continue
@@ -227,6 +227,11 @@ func (r *perfReader) read(ctx context.Context) ([]MetricItem, error) {
 	derive := func(metricID, numeratorID, denominatorID string, percent bool) MetricItem {
 		numerator, numeratorOK := values[numeratorID]
 		denominator, denominatorOK := values[denominatorID]
+		numeratorStatus := statuses[numeratorID]
+		denominatorStatus := statuses[denominatorID]
+		if numeratorStatus.Status != StatusValid || denominatorStatus.Status != StatusValid {
+			return statusItem(metricID, "", StatusPartial, "source_counter_partial", "PARTIAL_RESULT", "linux.perf_event_open", now)
+		}
 		previousNumerator, previousNumeratorOK := r.last[numeratorID]
 		previousDenominator, previousDenominatorOK := r.last[denominatorID]
 		if !numeratorOK || !denominatorOK {
@@ -287,7 +292,7 @@ func readPerfEvent(fd int) (uint64, error) {
 		return value, nil
 	}
 	scaled := float64(value) * float64(timeEnabled) / float64(timeRunning)
-	if math.IsNaN(scaled) || math.IsInf(scaled, 0) || scaled < 0 || scaled > float64(math.MaxUint64) {
+	if math.IsNaN(scaled) || math.IsInf(scaled, 0) || scaled < 0 || scaled > float64(^uint64(0)) {
 		return 0, errors.New("scaled PMU event value is out of range")
 	}
 	return uint64(math.Round(scaled)), nil
@@ -303,4 +308,3 @@ func classifyPerfError(err error) (status, reason, code string) {
 	return classifySourceError(err)
 }
 
-var _ = strings.Builder{}
