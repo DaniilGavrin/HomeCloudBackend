@@ -533,7 +533,10 @@ func itemsFor(current Snapshot, previous *Snapshot, observedAt time.Time) []Metr
 		items = append(items, coreTotalUsageItems(previous.Cores, current.Cores, observedAt)...)
 	} else {
 		for _, core := range current.Cores {
-			items = append(items, statusItem(MetricCoreTotalUsage, core.ObjectID, StatusUnknown, "no_baseline", "", "gopsutil.cpu.times", observedAt))
+			items = append(items,
+				statusItem(MetricCoreTotalUsage, core.ObjectID, StatusUnknown, "no_baseline", "", "gopsutil.cpu.times", observedAt),
+				statusItem(MetricCoreUsage, core.ObjectID, StatusUnknown, "no_baseline", "", "gopsutil.cpu.times", observedAt),
+			)
 		}
 	}
 	items = append(items, current.Issues...)
