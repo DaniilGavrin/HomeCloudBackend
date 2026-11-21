@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"HomeCloudBackend/internal/commands"
+
 	gopsutilcpu "github.com/shirou/gopsutil/v4/cpu"
 )
 
@@ -65,7 +67,10 @@ const (
 	MetricProcessesTarget               = "system.cpu.processes"
 )
 
-var ErrMetricUnsupported = errors.New("CPU metric is not supported by this platform or hardware")
+var ErrMetricUnsupported = commands.NewClassifiedError(
+	"METRIC_UNSUPPORTED", "source",
+	"CPU metric is not supported by this platform or hardware", false, nil,
+)
 
 // readLinuxFrequency reads cpufreq policy values. Linux sysfs reports
 // frequencies in kHz; Monitoring's canonical unit is Hz.
