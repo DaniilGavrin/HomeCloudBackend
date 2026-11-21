@@ -133,7 +133,6 @@ func (m *Manager) Cancel(sessionID int64, id string) {
 		return
 	}
 	m.removeLocked(sub)
-	m.stopIfIdleLocked()
 }
 
 func (m *Manager) DetachSession(sessionID int64) {
@@ -144,7 +143,6 @@ func (m *Manager) DetachSession(sessionID int64) {
 			m.removeLocked(sub)
 		}
 	}
-	m.stopIfIdleLocked()
 }
 
 func (m *Manager) removeLocked(sub subscription) {
@@ -153,13 +151,6 @@ func (m *Manager) removeLocked(sub subscription) {
 	delete(owned, sub.target)
 	if len(owned) == 0 {
 		delete(m.bySession, sub.sessionID)
-	}
-}
-
-func (m *Manager) stopIfIdleLocked() {
-	if len(m.subs) == 0 && m.cancel != nil {
-		m.cancel()
-		m.cancel = nil
 	}
 }
 
@@ -211,9 +202,6 @@ func (m *Manager) run(ctx context.Context) {
 		case <-m.wake:
 			if !m.hasSubscribers() {
 				previous = nil
-				continue
-			}
-			if previous != nil {
 				continue
 			}
 			current, err := m.collector.Read(ctx)
