@@ -67,7 +67,8 @@ func validTarget(target string) bool {
 		MetricCStateTarget, MetricThrottlingTarget, MetricInterrupts, MetricContextSwitches,
 		MetricThrottleThermalCoreEvents, MetricThrottleThermalCoreDuration,
 		MetricThrottleThermalPackageEvents, MetricThrottleThermalPackageDuration,
-		MetricThrottlePowerCoreEvents, MetricThrottlePowerPackageEvents:
+		MetricThrottlePowerCoreEvents, MetricThrottlePowerPackageEvents,
+		MetricProcessesTarget, MetricForks, MetricProcessesRunning, MetricProcessesBlocked:
 		return true
 	default:
 		return strings.HasPrefix(target, MetricCStateTarget+".")
@@ -200,7 +201,13 @@ func isThrottlingTarget(target string) bool {
 }
 
 func isSystemCounterTarget(target string) bool {
-	return target == MetricInterrupts || target == MetricContextSwitches
+	switch target {
+	case MetricInterrupts, MetricContextSwitches, MetricForks,
+		MetricProcessesRunning, MetricProcessesBlocked, MetricProcessesTarget:
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *Manager) hasMatchingTarget(match func(string) bool) bool {
@@ -532,7 +539,8 @@ func (m *Manager) publish(ctx context.Context, items []MetricItem) {
 					if strings.HasPrefix(item.MetricID, MetricFrequencyTarget+".") {
 						filtered = append(filtered, item)
 					}
-				case sub.target == MetricCStateTarget, sub.target == MetricThrottlingTarget:
+				case sub.target == MetricCStateTarget, sub.target == MetricThrottlingTarget,
+					sub.target == MetricProcessesTarget:
 					if strings.HasPrefix(item.MetricID, sub.target+".") {
 						filtered = append(filtered, item)
 					}

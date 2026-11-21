@@ -85,7 +85,7 @@ func TestReadLinuxSystemCounters(t *testing.T) {
 		t.Skip("/proc/stat format is Linux-specific")
 	}
 	path := filepath.Join(t.TempDir(), "stat")
-	content := "cpu 1 2 3 4\n intr 12345 1 2 3\n ctxt 6789\n btime 1\n"
+	content := "cpu 1 2 3 4\n intr 12345 1 2 3\n ctxt 6789\n btime 1\n processes 54321\n procs_running 4\n procs_blocked 2\n"
 	if err := writeFileForTest(path, content); err != nil {
 		t.Fatal(err)
 	}
@@ -93,14 +93,23 @@ func TestReadLinuxSystemCounters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 2 {
-		t.Fatalf("system counters = %d, want 2: %#v", len(items), items)
+	if len(items) != 5 {
+		t.Fatalf("system counters = %d, want 5: %#v", len(items), items)
 	}
-	if items[0].MetricID != MetricInterrupts || items[0].Value != uint64(12345) || items[0].Unit != "count" {
-		t.Fatalf("interrupt counter = %#v", items[0])
+	want := []struct {
+		metricID string
+		value    uint64
+	}{
+		{MetricInterrupts, 12345},
+		{MetricContextSwitches, 6789},
+		{MetricForks, 54321},
+		{MetricProcessesRunning, 4},
+		{MetricProcessesBlocked, 2},
 	}
-	if items[1].MetricID != MetricContextSwitches || items[1].Value != uint64(6789) || items[1].Unit != "count" {
-		t.Fatalf("context switch counter = %#v", items[1])
+	for i, expected := range want {
+		if items[i].MetricID != expected.metricID || items[i].Value != expected.value || items[i].Unit != "count" {
+			t.Errorf("counter[%d] = %#v, want metric=%q value=%d unit=count", i, items[i], expected.metricID, expected.value)
+		}
 	}
 }
 

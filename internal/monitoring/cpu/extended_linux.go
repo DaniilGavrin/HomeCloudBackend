@@ -213,8 +213,10 @@ func hasThrottleObject(items []MetricItem, metricID, objectID string) bool {
 	return false
 }
 
-// readLinuxSystemCounters reads the host-wide cumulative interrupt and context
-// switch counters from /proc/stat. Rates are intentionally not calculated here.
+// readLinuxSystemCounters reads host-wide cumulative counters and scheduler
+// gauges from /proc/stat. The Linux "processes" field counts tasks created
+// since boot (including clone-created tasks); procs_running and procs_blocked
+// are instantaneous task counts. Rates are intentionally not calculated here.
 func readLinuxSystemCounters(ctx context.Context, procStatPath string) ([]MetricItem, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -228,7 +230,7 @@ func readLinuxSystemCounters(ctx context.Context, procStatPath string) ([]Metric
 	}
 	defer file.Close()
 
-	values := make(map[string]uint64, 2)
+	values := make(map[string]uint64, 5)
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
@@ -240,14 +242,14 @@ func readLinuxSystemCounters(ctx context.Context, procStatPath string) ([]Metric
 			continue
 		}
 		switch fields[0] {
-		case "intr", "ctxt":
+		case "intr", "ctxt", "processes", "procs_running", "procs_blocked":
 			value, parseErr := strconv.ParseUint(fields[1], 10, 64)
 			if parseErr != nil {
 				return nil, fmt.Errorf("parse /proc/stat %s counter: %w", fields[0], parseErr)
 			}
 			values[fields[0]] = value
 		}
-		if len(values) == 2 {
+		if len(values) == 5 {
 			break
 		}
 	}
@@ -255,15 +257,25 @@ func readLinuxSystemCounters(ctx context.Context, procStatPath string) ([]Metric
 		return nil, fmt.Errorf("read proc stat: %w", err)
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	items := make([]MetricItem, 0, 2)
-	if value, ok := values["intr"]; ok {
-		items = append(items, MetricItem{MetricID: MetricInterrupts, Value: value, Unit: "count", ObservedAt: now})
-	}
-	if value, ok := values["ctxt"]; ok {
-		items = append(items, MetricItem{MetricID: MetricContextSwitches, Value: value, Unit: "count", ObservedAt: now})
+	items := make([]MetricItem, 0, 5)
+	for _, counter := range []struct {
+		key      string
+		metricID string
+	}{
+		{key: "intr", metricID: MetricInterrupts},
+		{key: "ctxt", metricID: MetricContextSwitches},
+		{key: "processes", metricID: MetricForks},
+		{key: "procs_running", metricID: MetricProcessesRunning},
+		{key: "procs_blocked", metricID: MetricProcessesBlocked},
+	} {
+		if value, ok := values[counter.key]; ok {
+			items = append(items, MetricItem{
+				MetricID: counter.metricID, Value: value, Unit: "count", ObservedAt: now,
+			})
+		}
 	}
 	if len(items) == 0 {
-		return nil, errors.Join(ErrMetricUnsupported, errors.New("/proc/stat does not expose intr or ctxt"))
+		return nil, errors.Join(ErrMetricUnsupported, errors.New("/proc/stat does not expose supported CPU counters"))
 	}
 	return items, nil
 }

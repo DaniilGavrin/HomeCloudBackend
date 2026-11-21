@@ -89,6 +89,7 @@ func TestNewCPUTargetsAreAccepted(t *testing.T) {
 		MetricThrottleThermalPackageEvents, MetricThrottleThermalPackageDuration,
 		MetricThrottlePowerCoreEvents, MetricThrottlePowerPackageEvents,
 		MetricInterrupts, MetricContextSwitches,
+		MetricForks, MetricProcessesRunning, MetricProcessesBlocked, MetricProcessesTarget,
 	}
 	for _, target := range targets {
 		if _, err := manager.Subscribe(1, target, EffectiveInterval, deliver); err != nil {
@@ -184,6 +185,9 @@ func (extendedTestCollector) ReadSystemCounters(context.Context) ([]MetricItem, 
 	return []MetricItem{
 		{MetricID: MetricInterrupts, Value: uint64(100), Unit: "count"},
 		{MetricID: MetricContextSwitches, Value: uint64(200), Unit: "count"},
+		{MetricID: MetricForks, Value: uint64(300), Unit: "count"},
+		{MetricID: MetricProcessesRunning, Value: uint64(4), Unit: "count"},
+		{MetricID: MetricProcessesBlocked, Value: uint64(2), Unit: "count"},
 	}, nil
 }
 
@@ -213,6 +217,21 @@ func TestExtendedCPUSubscriptionsPublishAndFilterMetrics(t *testing.T) {
 			name: "context switches", target: MetricContextSwitches,
 			publish: func(m *Manager, failed *bool) { m.publishSystemCounters(context.Background(), failed) },
 			wantMetric: MetricContextSwitches,
+		},
+		{
+			name: "forks", target: MetricForks,
+			publish: func(m *Manager, failed *bool) { m.publishSystemCounters(context.Background(), failed) },
+			wantMetric: MetricForks,
+		},
+		{
+			name: "running processes", target: MetricProcessesRunning,
+			publish: func(m *Manager, failed *bool) { m.publishSystemCounters(context.Background(), failed) },
+			wantMetric: MetricProcessesRunning,
+		},
+		{
+			name: "blocked processes", target: MetricProcessesBlocked,
+			publish: func(m *Manager, failed *bool) { m.publishSystemCounters(context.Background(), failed) },
+			wantMetric: MetricProcessesBlocked,
 		},
 	}
 	for _, test := range tests {
@@ -254,6 +273,39 @@ func TestExtendedCPUSubscriptionsPublishAndFilterMetrics(t *testing.T) {
 				t.Errorf("expected metric %q was not published", test.wantMetric)
 			}
 		})
+	}
+}
+
+func TestProcessGroupSubscriptionPublishesOnlyProcessMetrics(t *testing.T) {
+	manager := NewManager(extendedTestCollector{}, func() string { return "node-test" })
+	defer manager.Close()
+
+	var delivered commands.Outbound
+	deliver := func(_ context.Context, message commands.Outbound) error {
+		delivered = message
+		return nil
+	}
+	if _, err := manager.Subscribe(1, MetricProcessesTarget, EffectiveInterval, deliver); err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	failed := false
+	manager.publishSystemCounters(context.Background(), &failed)
+	if failed {
+		t.Fatal("process counter provider unexpectedly failed")
+	}
+
+	payload, ok := delivered.Payload.(map[string]any)
+	if !ok {
+		t.Fatalf("payload type = %T, want map", delivered.Payload)
+	}
+	items, ok := payload["items"].([]MetricItem)
+	if !ok || len(items) != 2 {
+		t.Fatalf("process group items = %#v, want running and blocked", payload["items"])
+	}
+	for _, item := range items {
+		if item.MetricID != MetricProcessesRunning && item.MetricID != MetricProcessesBlocked {
+			t.Errorf("unexpected metric %q in process group", item.MetricID)
+		}
 	}
 }
 

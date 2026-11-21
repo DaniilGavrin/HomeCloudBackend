@@ -46,16 +46,20 @@ const (
 const defaultSysfsCPUPath = "/sys/devices/system/cpu"
 
 const (
-	MetricCStateTarget = "system.cpu.idle.cstate"
-	MetricThrottlingTarget = "system.cpu.throttling"
-	MetricThrottleThermalCoreEvents = "system.cpu.throttling.thermal.core.events"
-	MetricThrottleThermalCoreDuration = "system.cpu.throttling.thermal.core.duration"
-	MetricThrottleThermalPackageEvents = "system.cpu.throttling.thermal.package.events"
+	MetricCStateTarget                  = "system.cpu.idle.cstate"
+	MetricThrottlingTarget              = "system.cpu.throttling"
+	MetricThrottleThermalCoreEvents     = "system.cpu.throttling.thermal.core.events"
+	MetricThrottleThermalCoreDuration   = "system.cpu.throttling.thermal.core.duration"
+	MetricThrottleThermalPackageEvents  = "system.cpu.throttling.thermal.package.events"
 	MetricThrottleThermalPackageDuration = "system.cpu.throttling.thermal.package.duration"
-	MetricThrottlePowerCoreEvents = "system.cpu.throttling.power.core.events"
-	MetricThrottlePowerPackageEvents = "system.cpu.throttling.power.package.events"
-	MetricInterrupts = "system.cpu.interrupts"
-	MetricContextSwitches = "system.cpu.context_switches"
+	MetricThrottlePowerCoreEvents       = "system.cpu.throttling.power.core.events"
+	MetricThrottlePowerPackageEvents    = "system.cpu.throttling.power.package.events"
+	MetricInterrupts                    = "system.cpu.interrupts"
+	MetricContextSwitches                = "system.cpu.context_switches"
+	MetricForks                         = "system.cpu.forks"
+	MetricProcessesRunning              = "system.cpu.processes.running"
+	MetricProcessesBlocked              = "system.cpu.processes.blocked"
+	MetricProcessesTarget               = "system.cpu.processes"
 )
 
 var ErrMetricUnsupported = errors.New("CPU metric is not supported by this platform or hardware")

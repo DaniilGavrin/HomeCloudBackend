@@ -364,6 +364,22 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 	registry.MustRegister(MetricCStateTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
 		return readCStates(ctx)
 	})
+	registry.MustRegister(MetricProcessesTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+		items, err := readSystemCounters(ctx)
+		if err != nil {
+			return nil, err
+		}
+		filtered := make([]MetricItem, 0, 2)
+		for _, item := range items {
+			if item.MetricID == MetricProcessesRunning || item.MetricID == MetricProcessesBlocked {
+				filtered = append(filtered, item)
+			}
+		}
+		if len(filtered) == 0 {
+			return nil, ErrMetricUnsupported
+		}
+		return filtered, nil
+	})
 	registry.MustRegister(MetricThrottlingTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
 		return readThrottling(ctx)
 	})
@@ -391,7 +407,10 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 		})
 	}
 
-	for _, metricID := range []string{MetricInterrupts, MetricContextSwitches} {
+	for _, metricID := range []string{
+		MetricInterrupts, MetricContextSwitches, MetricForks,
+		MetricProcessesRunning, MetricProcessesBlocked,
+	} {
 		id := metricID
 		registry.MustRegister(id, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
 			items, err := readSystemCounters(ctx)
