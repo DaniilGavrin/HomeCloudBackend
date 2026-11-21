@@ -139,37 +139,37 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 		topologyPath := filepath.Join(cpuPath, "topology")
 		packageID, packageErr := readSysfsValue(filepath.Join(topologyPath, "physical_package_id"))
 		coreID, coreErr := readSysfsValue(filepath.Join(topologyPath, "core_id"))
-		if packageErr != nil || packageID == "" {
-			packageID = "unknown"
-		}
-		if coreErr != nil || coreID == "" {
-			coreID = cpuName
-		}
-		coreKey := packageID + ":" + coreID
 		throttlePath := filepath.Join(cpuPath, "thermal_throttle")
 
-		coreObjectID := "package" + packageID + "/core" + coreID
-		if !seenCoreEvents[coreKey] {
-			appendThrottleCounter(&items, throttlePath, "core_throttle_count",
-				MetricThrottleThermalCoreEvents, coreObjectID, "count", 1, now)
-			seenCoreEvents[coreKey] = hasThrottleObject(items, MetricThrottleThermalCoreEvents, coreObjectID)
-		}
-		if !seenCoreDuration[coreKey] {
-			appendThrottleCounter(&items, throttlePath, "core_throttle_total_time_ms",
-				MetricThrottleThermalCoreDuration, coreObjectID, "ns", uint64(time.Millisecond), now)
-			seenCoreDuration[coreKey] = hasThrottleObject(items, MetricThrottleThermalCoreDuration, coreObjectID)
+		// Never label a logical-CPU counter as core/package data when sysfs
+		// does not expose the topology needed to establish that scope.
+		if packageErr == nil && packageID != "" && coreErr == nil && coreID != "" {
+			coreKey := packageID + ":" + coreID
+			coreObjectID := "package" + packageID + "/core" + coreID
+			if !seenCoreEvents[coreKey] {
+				appendThrottleCounter(&items, throttlePath, "core_throttle_count",
+					MetricThrottleThermalCoreEvents, coreObjectID, "count", 1, now)
+				seenCoreEvents[coreKey] = hasThrottleObject(items, MetricThrottleThermalCoreEvents, coreObjectID)
+			}
+			if !seenCoreDuration[coreKey] {
+				appendThrottleCounter(&items, throttlePath, "core_throttle_total_time_ms",
+					MetricThrottleThermalCoreDuration, coreObjectID, "ns", uint64(time.Millisecond), now)
+				seenCoreDuration[coreKey] = hasThrottleObject(items, MetricThrottleThermalCoreDuration, coreObjectID)
+			}
 		}
 
-		packageObjectID := "package" + packageID
-		if !seenPackageEvents[packageID] {
-			appendThrottleCounter(&items, throttlePath, "package_throttle_count",
-				MetricThrottleThermalPackageEvents, packageObjectID, "count", 1, now)
-			seenPackageEvents[packageID] = hasThrottleObject(items, MetricThrottleThermalPackageEvents, packageObjectID)
-		}
-		if !seenPackageDuration[packageID] {
-			appendThrottleCounter(&items, throttlePath, "package_throttle_total_time_ms",
-				MetricThrottleThermalPackageDuration, packageObjectID, "ns", uint64(time.Millisecond), now)
-			seenPackageDuration[packageID] = hasThrottleObject(items, MetricThrottleThermalPackageDuration, packageObjectID)
+		if packageErr == nil && packageID != "" {
+			packageObjectID := "package" + packageID
+			if !seenPackageEvents[packageID] {
+				appendThrottleCounter(&items, throttlePath, "package_throttle_count",
+					MetricThrottleThermalPackageEvents, packageObjectID, "count", 1, now)
+				seenPackageEvents[packageID] = hasThrottleObject(items, MetricThrottleThermalPackageEvents, packageObjectID)
+			}
+			if !seenPackageDuration[packageID] {
+				appendThrottleCounter(&items, throttlePath, "package_throttle_total_time_ms",
+					MetricThrottleThermalPackageDuration, packageObjectID, "ns", uint64(time.Millisecond), now)
+				seenPackageDuration[packageID] = hasThrottleObject(items, MetricThrottleThermalPackageDuration, packageObjectID)
+			}
 		}
 	}
 	if len(items) == 0 {
