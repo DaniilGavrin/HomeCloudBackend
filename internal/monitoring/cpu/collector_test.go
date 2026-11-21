@@ -60,8 +60,11 @@ func TestItemsForUsesCumulativeNanosecondsAndExtendedCounters(t *testing.T) {
 		TotalSeconds: 10,
 	}}
 	items := itemsFor(current, nil, now)
-	if len(items) != 10 {
-		t.Fatalf("items = %d, want 10 without a baseline", len(items))
+	if len(items) != 11 {
+		t.Fatalf("items = %d, want 11 including the explicit no-baseline totalusage state", len(items))
+	}
+	if items[10].MetricID != MetricTotalUsage || items[10].Status != StatusUnknown || items[10].Reason != "no_baseline" {
+		t.Fatalf("first totalusage sample must be unknown/no_baseline: %#v", items[10])
 	}
 	expected := []struct {
 		id string
@@ -105,16 +108,19 @@ func TestPerCoreMetricsUseObjectIDAndBaseline(t *testing.T) {
 	}
 
 	usageItems := coreTotalUsageItems(previous.Cores, current.Cores, now)
-	if len(usageItems) != 2 {
-		t.Fatalf("core usage items = %d, want 2 (new cpu4 has no baseline)", len(usageItems))
+	if len(usageItems) != 3 {
+		t.Fatalf("core usage items = %d, want 3 including cpu4 no-baseline state", len(usageItems))
 	}
-	for _, item := range usageItems {
-		if item.MetricID != MetricCoreTotalUsage || item.Unit != "percent" {
+	for _, item := range usageItems[:2] {
+		if item.MetricID != MetricCoreTotalUsage || item.Unit != "percent" || item.Status != StatusValid {
 			t.Fatalf("unexpected per-core usage item: %#v", item)
 		}
 		if item.Value != float64(50) {
 			t.Fatalf("core %s usage = %v, want 50", item.ObjectID, item.Value)
 		}
+	}
+	if usageItems[2].ObjectID != "cpu4" || usageItems[2].Status != StatusUnknown || usageItems[2].Reason != "no_baseline" {
+		t.Fatalf("new CPU must report explicit no-baseline state: %#v", usageItems[2])
 	}
 }
 
