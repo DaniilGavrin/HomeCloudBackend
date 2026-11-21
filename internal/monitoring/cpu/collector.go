@@ -622,12 +622,13 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 }
 
 func coreUserItems(cores []CoreCounters, observedAt time.Time) []MetricItem {
-	timestamp := observedAt.Format(time.RFC3339Nano)
+	timestamp := observedAt.UTC().Format(time.RFC3339Nano)
 	items := make([]MetricItem, 0, len(cores))
 	for _, core := range cores {
 		items = append(items, MetricItem{
 			MetricID: MetricCoreUser, ObjectID: core.ObjectID,
 			Value: counterNanoseconds(core.Counters.UserSeconds), Unit: "ns", ObservedAt: timestamp,
+			Status: StatusValid, SourceID: "gopsutil.cpu.times",
 		})
 	}
 	return items
@@ -638,20 +639,23 @@ func coreTotalUsageItems(previous, current []CoreCounters, observedAt time.Time)
 	for _, core := range previous {
 		previousByID[core.ObjectID] = core.Counters
 	}
-	timestamp := observedAt.Format(time.RFC3339Nano)
+	timestamp := observedAt.UTC().Format(time.RFC3339Nano)
 	items := make([]MetricItem, 0, len(current))
 	for _, core := range current {
 		before, exists := previousByID[core.ObjectID]
 		if !exists {
+			items = append(items, statusItem(MetricCoreTotalUsage, core.ObjectID, StatusUnknown, "no_baseline", "", "gopsutil.cpu.times", observedAt))
 			continue
 		}
 		value, ok := CalculateTotalUsage(before, core.Counters)
 		if !ok {
+			items = append(items, statusItem(MetricCoreTotalUsage, core.ObjectID, StatusUnavailable, "counter_reset", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", observedAt))
 			continue
 		}
 		items = append(items, MetricItem{
 			MetricID: MetricCoreTotalUsage, ObjectID: core.ObjectID,
 			Value: value, Unit: "percent", ObservedAt: timestamp,
+			Status: StatusValid, SourceID: "gopsutil.cpu.times", WindowMS: EffectiveInterval.Milliseconds(),
 		})
 	}
 	return items
