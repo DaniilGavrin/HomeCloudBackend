@@ -89,6 +89,7 @@ func TestNewCPUTargetsAreAccepted(t *testing.T) {
 		MetricThrottleThermalPackageEvents, MetricThrottleThermalPackageDuration,
 		MetricThrottlePowerCoreEvents, MetricThrottlePowerPackageEvents,
 		MetricInterrupts, MetricContextSwitches,
+		MetricForks, MetricProcessesRunning, MetricProcessesBlocked, MetricProcessesTarget,
 	}
 	for _, target := range targets {
 		if _, err := manager.Subscribe(1, target, EffectiveInterval, deliver); err != nil {
