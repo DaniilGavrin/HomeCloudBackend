@@ -70,7 +70,7 @@ var ErrMetricUnsupported = errors.New("CPU metric is not supported by this platf
 // frequencies in kHz; Monitoring's canonical unit is Hz.
 func readLinuxFrequency(ctx context.Context, cpuSysfsPath string) ([]MetricItem, error) {
 	now := time.Now().UTC()
-	metricIDs := []string{MetricFrequencyCurrent, MetricFrequencyMin, MetricFrequencyMax, MetricFrequencyBase, MetricFrequencyGovernor, MetricCoreFrequency}
+	metricIDs := []string{MetricFrequencyTarget, MetricFrequencyCurrent, MetricFrequencyMin, MetricFrequencyMax, MetricFrequencyBase, MetricFrequencyGovernor, MetricCoreFrequency}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -133,6 +133,7 @@ func readLinuxFrequency(ctx context.Context, cpuSysfsPath string) ([]MetricItem,
 				SourceID: "linux.sysfs.cpufreq",
 			})
 		}
+		appendFrequency(MetricFrequencyTarget, "scaling_cur_freq", "Hz", "cpuinfo_cur_freq")
 		appendFrequency(MetricFrequencyCurrent, "scaling_cur_freq", "Hz", "cpuinfo_cur_freq")
 		appendFrequency(MetricFrequencyMin, "cpuinfo_min_freq", "Hz", "scaling_min_freq")
 		appendFrequency(MetricFrequencyMax, "cpuinfo_max_freq", "Hz", "scaling_max_freq")
