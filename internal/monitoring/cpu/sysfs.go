@@ -447,3 +447,40 @@ func findNUMANode(cpuPath string) string {
 	}
 	return strings.TrimPrefix(filepath.Base(matches[0]), "node")
 }
+
+func frequencyPoliciesForCPU(cpuSysfsPath string, cpuID int64) []string {
+	policies, err := filepath.Glob(filepath.Join(cpuSysfsPath, "cpufreq", "policy[0-9]*"))
+	if err != nil {
+		return nil
+	}
+	sort.Strings(policies)
+	result := make([]string, 0, 1)
+	for _, policyPath := range policies {
+		cpuList, readErr := readSysfsValue(filepath.Join(policyPath, "affected_cpus"))
+		if readErr != nil {
+			cpuList, readErr = readSysfsValue(filepath.Join(policyPath, "related_cpus"))
+		}
+		if readErr != nil {
+			continue
+		}
+		cpuIDs, parseErr := parseCPUList(cpuList)
+		if parseErr != nil {
+			continue
+		}
+		for _, id := range cpuIDs {
+			if int64(id) == cpuID {
+				result = append(result, filepath.Base(policyPath))
+				break
+			}
+		}
+	}
+	return result
+}
+
+func isFrequencyDomainID(value string) bool {
+	if !strings.HasPrefix(value, "policy") {
+		return false
+	}
+	id, err := strconv.Atoi(strings.TrimPrefix(value, "policy"))
+	return err == nil && id >= 0
+}
