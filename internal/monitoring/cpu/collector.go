@@ -80,15 +80,22 @@ func (c *SystemCollector) ReadFrequency(ctx context.Context) ([]MetricItem, erro
 // in one source is represented as a metric-level quality item and must not
 // discard valid data from the other source.
 func (c *SystemCollector) Read(ctx context.Context) (Snapshot, error) {
-	now := time.Now().UTC()
-	result := Snapshot{
-		CollectedAt: now,
-		AggregateStatus: StatusUnknown,
-		Cores: make([]CoreCounters, 0),
-	}
 	aggregateStats, aggregateErr := cpu.TimesWithContext(ctx, false)
 	if ctx.Err() != nil {
 		return Snapshot{}, ctx.Err()
+	}
+	perCPUStats, perCPUErr := cpu.TimesWithContext(ctx, true)
+	if ctx.Err() != nil {
+		return Snapshot{}, ctx.Err()
+	}
+	return snapshotFromStats(aggregateStats, aggregateErr, perCPUStats, perCPUErr, time.Now().UTC()), nil
+}
+
+func snapshotFromStats(aggregateStats []cpu.TimesStat, aggregateErr error, perCPUStats []cpu.TimesStat, perCPUErr error, now time.Time) Snapshot {
+	result := Snapshot{
+		CollectedAt: now.UTC(),
+		AggregateStatus: StatusUnknown,
+		Cores: make([]CoreCounters, 0, len(perCPUStats)),
 	}
 	if aggregateErr == nil && len(aggregateStats) > 0 {
 		aggregate := countersFromTimes(aggregateStats[0])
@@ -112,10 +119,6 @@ func (c *SystemCollector) Read(ctx context.Context) (Snapshot, error) {
 		}
 	}
 
-	perCPUStats, perCPUErr := cpu.TimesWithContext(ctx, true)
-	if ctx.Err() != nil {
-		return Snapshot{}, ctx.Err()
-	}
 	if perCPUErr != nil || len(perCPUStats) == 0 {
 		if perCPUErr == nil {
 			perCPUErr = errors.New("per-CPU counters are unavailable")
@@ -125,7 +128,7 @@ func (c *SystemCollector) Read(ctx context.Context) (Snapshot, error) {
 			statusItem(MetricCoreUser, "", status, reason, code, "gopsutil.cpu.times", now),
 			statusItem(MetricCoreTotalUsage, "", status, reason, code, "gopsutil.cpu.times", now),
 		)
-		return result, nil
+		return result
 	}
 
 	seen := make(map[string]struct{}, len(perCPUStats))
@@ -158,7 +161,7 @@ func (c *SystemCollector) Read(ctx context.Context) (Snapshot, error) {
 			statusItem(MetricCoreTotalUsage, "", StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", now),
 		)
 	}
-	return result, nil
+	return result
 }
 
 func aggregateMetricIDs() []string {
