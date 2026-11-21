@@ -112,32 +112,30 @@ func (s *Server) handleMonitoringCommand(ctx context.Context, message Inbound, p
 		return s.commandError(message.CorrelationID, payload.CommandID, "RESULT_ENCODING_FAILED", "internal", "failed to encode command result", false)
 	}
 	var metric map[string]any
-	if err := json.Unmarshal(encoded, &metric); err == nil {
+	if len(result.Data) > 0 && json.Unmarshal(result.Data, &metric) == nil && metric != nil {
+		resultPayload := make(map[string]any)
 		if value, ok := metric["value"]; ok {
-			resultPayload := map[string]any{"value": value}
-			if unit, exists := metric["unit"]; exists {
-				resultPayload["unit"] = unit
-			}
-			commandPayload := map[string]any{"command_id": payload.CommandID, "result": resultPayload}
-			metadata := make(map[string]any)
-			for _, key := range []string{
-				"observed_at", "status", "reason", "error_code", "source_id",
-				"window_ms", "window_start", "window_end",
-			} {
-				if field, exists := metric[key]; exists {
-					metadata[key] = field
-				}
-			}
-			if len(metadata) > 0 {
-				commandPayload["metadata"] = metadata
-			}
-			return Outbound{V: 1, Type: "command.result", CorrelationID: message.CorrelationID, NodeID: s.localNodeID, Payload: commandPayload}
+			resultPayload["value"] = value
 		}
+		if unit, ok := metric["unit"]; ok {
+			resultPayload["unit"] = unit
+		}
+		commandPayload := map[string]any{"command_id": payload.CommandID, "result": resultPayload}
+		metadata := make(map[string]any)
+		for _, key := range []string{
+			"observed_at", "status", "reason", "error_code", "source_id",
+			"window_ms", "window_start", "window_end",
+		} {
+			if field, exists := metric[key]; exists {
+				metadata[key] = field
+			}
+		}
+		if len(metadata) > 0 {
+			commandPayload["metadata"] = metadata
+		}
+		return Outbound{V: 1, Type: "command.result", CorrelationID: message.CorrelationID, NodeID: s.localNodeID, Payload: commandPayload}
 	}
-	return Outbound{
-		V: 1, Type: "command.result", CorrelationID: message.CorrelationID, NodeID: s.localNodeID,
-		Payload: map[string]any{"command_id": payload.CommandID, "result": result.Data},
-	}
+	return Outbound{V: 1, Type: "command.result", CorrelationID: message.CorrelationID, NodeID: s.localNodeID, Payload: map[string]any{"command_id": payload.CommandID, "result": result.Data}}
 }
 
 func (s *Server) handleSubscriptionCreate(message Inbound, peer *connections.Peer) (Outbound, func()) {
