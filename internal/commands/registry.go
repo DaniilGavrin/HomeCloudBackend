@@ -73,9 +73,18 @@ func (r *Registry) Actions() []string {
 // have type=error with no action; successful calls have type=result and action.
 func (r *Registry) Dispatch(ctx context.Context, msg Inbound, client ClientContext) Outbound {
 	response := Outbound{V: 1, ID: msg.ID}
-	if msg.Type != "command" || r == nil {
+	if msg.Type != "command" {
 		response.Type = "error"
-		response.Error = "unknown or unsupported action"
+		response.Error = "unsupported command message type"
+		response.ErrorCode = "PROTOCOL_UNSUPPORTED_MESSAGE_TYPE"
+		response.ErrorCategory = "protocol"
+		return response
+	}
+	if r == nil {
+		response.Type = "error"
+		response.Error = "command registry is unavailable"
+		response.ErrorCode = "PROVIDER_FAILURE"
+		response.ErrorCategory = "execution"
 		return response
 	}
 	r.mu.RLock()
@@ -83,22 +92,50 @@ func (r *Registry) Dispatch(ctx context.Context, msg Inbound, client ClientConte
 	r.mu.RUnlock()
 	if !found {
 		response.Type = "error"
-		response.Error = "unknown or unsupported action"
+		response.Error = "unknown command"
+		response.ErrorCode = "COMMAND_NOT_FOUND"
+		response.ErrorCategory = "routing"
 		return response
 	}
 	if err := ctx.Err(); err != nil {
 		response.Type = "error"
 		response.Error = err.Error()
+		setOutboundErrorMetadata(&response, err)
 		return response
 	}
 	data, err := handler(ctx, msg, client)
 	if err != nil {
 		response.Type = "error"
 		response.Error = err.Error()
+		setOutboundErrorMetadata(&response, err)
 		return response
 	}
 	response.Type = "result"
 	response.Action = msg.Action
 	response.Data = data
 	return response
+}
+
+func setOutboundErrorMetadata(response *Outbound, err error) {
+	var classified *ClassifiedError
+	if errors.As(err, &classified) {
+		response.ErrorCode = classified.Code
+		response.ErrorCategory = classified.Category
+		response.Retryable = classified.Retryable
+		return
+	}
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		response.ErrorCode = "REQUEST_TIMEOUT"
+		response.ErrorCategory = "timeout"
+		response.Retryable = true
+	case errors.Is(err, context.Canceled):
+		response.ErrorCode = "REQUEST_CANCELLED"
+		response.ErrorCategory = "timeout"
+		response.Retryable = false
+	default:
+		response.ErrorCode = "PROVIDER_FAILURE"
+		response.ErrorCategory = "execution"
+		response.Retryable = false
+	}
 }
