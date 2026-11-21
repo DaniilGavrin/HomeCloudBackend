@@ -204,10 +204,14 @@ func validateCounters(c Counters) error {
 		c.NiceSeconds, c.IOWaitSeconds, c.IRQSeconds, c.SoftIRQSeconds,
 		c.StealSeconds, c.GuestSeconds, c.GuestNiceSeconds,
 	}
+	maxSeconds := float64(^uint64(0)>>1) / float64(time.Second)
 	for _, value := range values {
-		if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+		if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > maxSeconds {
 			return errors.New("CPU counters contain invalid values")
 		}
+	}
+	if c.IdleSeconds > c.TotalSeconds {
+		return errors.New("CPU idle time exceeds total time")
 	}
 	return nil
 }
