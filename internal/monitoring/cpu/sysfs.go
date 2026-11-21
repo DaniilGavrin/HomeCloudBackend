@@ -56,6 +56,10 @@ const (
 	MetricThrottlePowerPackageEvents = "system.cpu.throttling.power.package.events"
 	MetricInterrupts = "system.cpu.interrupts"
 	MetricContextSwitches = "system.cpu.context_switches"
+	MetricForks = "system.cpu.forks"
+	MetricProcessesRunning = "system.cpu.processes.running"
+	MetricProcessesBlocked = "system.cpu.processes.blocked"
+	MetricProcessesTarget = "system.cpu.processes"
 )
 
 var ErrMetricUnsupported = errors.New("CPU metric is not supported by this platform or hardware")
