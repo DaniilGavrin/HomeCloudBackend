@@ -206,6 +206,7 @@ func (m *Manager) Close() {
 	clear(m.bySession)
 	m.mu.Unlock()
 	m.wg.Wait()
+	m.stopPerfReader()
 }
 
 func (m *Manager) hasSubscribers() bool {
@@ -717,7 +718,9 @@ func (m *Manager) publishCollectionError(ctx context.Context, cause error, alrea
 	}
 	*alreadyFailed = true
 	for _, sub := range m.snapshot() {
-		if isFrequencyTarget(sub.target) {
+		if isFrequencyTarget(sub.target) || isCStateTarget(sub.target) ||
+			isThrottlingTarget(sub.target) || isSystemCounterTarget(sub.target) ||
+			isPressureTarget(sub.target) || isPerfTarget(sub.target) {
 			continue
 		}
 		nodeID := ""
