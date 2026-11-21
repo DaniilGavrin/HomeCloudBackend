@@ -87,6 +87,7 @@ func TestNewCPUTargetsAreAccepted(t *testing.T) {
 		MetricCStateTarget, "system.cpu.idle.cstate.c1", MetricThrottlingTarget,
 		MetricThrottleThermalCoreEvents, MetricThrottleThermalCoreDuration,
 		MetricThrottleThermalPackageEvents, MetricThrottleThermalPackageDuration,
+		MetricThrottlePowerCoreEvents, MetricThrottlePowerPackageEvents,
 		MetricInterrupts, MetricContextSwitches,
 	}
 	for _, target := range targets {
@@ -174,7 +175,8 @@ func (extendedTestCollector) ReadCStates(context.Context) ([]MetricItem, error) 
 func (extendedTestCollector) ReadThrottling(context.Context) ([]MetricItem, error) {
 	return []MetricItem{
 		{MetricID: MetricThrottleThermalCoreEvents, ObjectID: "package0/core0", Value: uint64(2), Unit: "count"},
-		{MetricID: MetricThrottleThermalCoreDuration, ObjectID: "package0/core0", Value: int64(3000000), Unit: "ns"},
+		{MetricID: MetricThrottleThermalCoreDuration, ObjectID: "cpu0", Value: int64(3000000), Unit: "ns"},
+		{MetricID: MetricThrottlePowerCoreEvents, ObjectID: "cpu0", Value: uint64(1), Unit: "count"},
 	}, nil
 }
 
