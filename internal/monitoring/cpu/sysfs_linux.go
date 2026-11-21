@@ -35,6 +35,7 @@ const (
 	MetricTopologyFamily        = "system.cpu.topology.family"
 	MetricTopologyModelID       = "system.cpu.topology.model_id"
 	MetricTopologyStepping      = "system.cpu.topology.stepping"
+	MetricTopologyFeatures      = "system.cpu.topology.features"
 	MetricTopologyCoreID        = "system.cpu.topology.core_id"
 	MetricTopologyPackageID     = "system.cpu.topology.package_id"
 	MetricTopologyDieID         = "system.cpu.topology.die_id"
@@ -232,6 +233,9 @@ func readLinuxTopology(ctx context.Context, cpuSysfsPath string) ([]MetricItem, 
 		appendStringMetric(MetricTopologyModel, first.ModelName)
 		appendStringMetric(MetricTopologyFamily, first.Family)
 		appendStringMetric(MetricTopologyModelID, first.Model)
+		if len(first.Flags) > 0 {
+			items = append(items, MetricItem{MetricID: MetricTopologyFeatures, Value: first.Flags, Unit: "list"})
+		}
 		if first.Stepping != 0 {
 			items = append(items, MetricItem{MetricID: MetricTopologyStepping, Value: first.Stepping, Unit: "count"})
 		}
