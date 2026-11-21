@@ -74,7 +74,9 @@ func TestNewCPUTargetsAreAccepted(t *testing.T) {
 
 	targets := []string{
 		MetricSoftIRQ, MetricSteal, MetricGuest, MetricGuestNice,
-		MetricCoreTotalUsage, MetricCoreUser,
+		MetricCoreTotalUsage, MetricCoreUser, MetricFrequencyTarget,
+		MetricFrequencyCurrent, MetricFrequencyMin, MetricFrequencyMax,
+		MetricFrequencyBase, MetricFrequencyGovernor,
 	}
 	for _, target := range targets {
 		if _, err := manager.Subscribe(1, target, EffectiveInterval, deliver); err != nil {
