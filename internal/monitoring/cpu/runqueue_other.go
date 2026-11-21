@@ -12,5 +12,12 @@ func (c *SystemCollector) ReadSystemCounters(ctx context.Context) ([]MetricItem,
 		return nil, err
 	}
 	now := time.Now().UTC()
-	return []MetricItem{statusItem(MetricRunQueue, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "platform.cpu.scheduler", now)}, nil
+	items := make([]MetricItem, 0, 6)
+	for _, metricID := range []string{
+		MetricInterrupts, MetricContextSwitches, MetricForks,
+		MetricProcessesRunning, MetricProcessesBlocked, MetricRunQueue,
+	} {
+		items = append(items, statusItem(metricID, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "platform.cpu.scheduler", now))
+	}
+	return items, nil
 }
