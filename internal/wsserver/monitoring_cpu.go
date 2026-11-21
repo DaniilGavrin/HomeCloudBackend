@@ -171,7 +171,7 @@ func (s *Server) handleSubscriptionCreate(message Inbound, peer *connections.Pee
 		case errors.Is(err, cpumonitor.ErrInvalidTarget):
 			code, category, retryable = "SUBSCRIPTION_TARGET_UNSUPPORTED", "validation", false
 		case errors.Is(err, cpumonitor.ErrInvalidInterval):
-			code, category, retryable = "INVALID_INTERVAL", "validation", false
+			code, category, retryable = "SUBSCRIPTION_INTERVAL_UNSUPPORTED", "validation", false
 		case errors.Is(err, cpumonitor.ErrSubscriptionLimit):
 			code, category, retryable = "SUBSCRIPTION_LIMIT_REACHED", "resource_limit", true
 		case errors.Is(err, cpumonitor.ErrManagerClosed):
