@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 
 	"HomeCloudBackend/internal/commands"
@@ -64,7 +65,10 @@ type Collector interface {
 	TotalUsage(context.Context, time.Duration) (float64, error)
 }
 
-type SystemCollector struct{}
+type SystemCollector struct {
+	perfMu sync.Mutex
+	perf   *perfReader
+}
 
 func NewSystemCollector() *SystemCollector { return &SystemCollector{} }
 
