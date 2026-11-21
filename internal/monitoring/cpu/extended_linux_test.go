@@ -38,9 +38,12 @@ func TestReadLinuxCStatesUnsupportedWhenNoResidencySource(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("Linux cpuidle sysfs only")
 	}
-	_, err := readLinuxCStates(context.Background(), t.TempDir())
-	if !errors.Is(err, ErrMetricUnsupported) {
-		t.Fatalf("error = %v, want ErrMetricUnsupported", err)
+	items, err := readLinuxCStates(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatalf("read C-states: %v", err)
+	}
+	if len(items) != 1 || items[0].MetricID != MetricCStateTarget || items[0].Status != StatusUnsupported {
+		t.Fatalf("unsupported C-state source must return an explicit status item: %#v", items)
 	}
 }
 
