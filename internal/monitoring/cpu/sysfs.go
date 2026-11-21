@@ -336,8 +336,17 @@ func readLinuxTopology(ctx context.Context, cpuSysfsPath string) ([]MetricItem, 
 	info, infoErr := gopsutilcpu.InfoWithContext(ctx)
 	if infoErr != nil {
 		status, reason, code := classifySourceError(infoErr)
-		for _, metricID := range []string{MetricTopologyVendor, MetricTopologyModel, MetricTopologyFamily, MetricTopologyModelID, MetricTopologyFeatures, MetricTopologyStepping} {
-			items = append(items, statusItem(metricID, "", status, reason, code, "gopsutil.cpu.info", now))
+		if len(locations) == 0 {
+			for _, metricID := range []string{MetricTopologyVendor, MetricTopologyModel, MetricTopologyFamily, MetricTopologyModelID, MetricTopologyFeatures, MetricTopologyStepping} {
+				items = append(items, statusItem(metricID, "", status, reason, code, "gopsutil.cpu.info", now))
+			}
+		} else {
+			for _, location := range locations {
+				objectID := fmt.Sprintf("cpu%d", location.cpuID)
+				for _, metricID := range []string{MetricTopologyVendor, MetricTopologyModel, MetricTopologyFamily, MetricTopologyModelID, MetricTopologyFeatures, MetricTopologyStepping} {
+					items = append(items, statusItem(metricID, objectID, status, reason, code, "gopsutil.cpu.info", now))
+				}
+			}
 		}
 	} else {
 		seenInfo := make(map[string]bool, len(info))
@@ -360,15 +369,17 @@ func readLinuxTopology(ctx context.Context, cpuSysfsPath string) ([]MetricItem, 
 			} else {
 				items = append(items, statusItem(MetricTopologyFeatures, objectID, StatusUnsupported, "not_present", "METRIC_UNSUPPORTED", "gopsutil.cpu.info", now))
 			}
-			if cpuInfo.Stepping != 0 {
-				items = append(items, MetricItem{MetricID: MetricTopologyStepping, ObjectID: objectID, Value: cpuInfo.Stepping, Unit: "count", ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid, SourceID: "gopsutil.cpu.info"})
-			} else {
-				items = append(items, statusItem(MetricTopologyStepping, objectID, StatusUnsupported, "not_present", "METRIC_UNSUPPORTED", "gopsutil.cpu.info", now))
-			}
+			// Stepping zero is a valid hardware value; a successful CPU-info
+			// response is sufficient evidence that the field was observed.
+			items = append(items, MetricItem{MetricID: MetricTopologyStepping, ObjectID: objectID, Value: cpuInfo.Stepping, Unit: "count", ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid, SourceID: "gopsutil.cpu.info"})
 		}
-		if len(seenInfo) == 0 {
+		for _, location := range locations {
+			objectID := fmt.Sprintf("cpu%d", location.cpuID)
+			if seenInfo[objectID] {
+				continue
+			}
 			for _, metricID := range []string{MetricTopologyVendor, MetricTopologyModel, MetricTopologyFamily, MetricTopologyModelID, MetricTopologyFeatures, MetricTopologyStepping} {
-				items = append(items, statusItem(metricID, "", StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "gopsutil.cpu.info", now))
+				items = append(items, statusItem(metricID, objectID, StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "gopsutil.cpu.info", now))
 			}
 		}
 	}
