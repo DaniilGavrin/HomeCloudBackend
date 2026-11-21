@@ -27,10 +27,6 @@ func (c *SystemCollector) ReadThrottling(ctx context.Context) ([]MetricItem, err
 	return readLinuxThrottling(ctx, defaultSysfsCPUPath)
 }
 
-func (c *SystemCollector) ReadSystemCounters(ctx context.Context) ([]MetricItem, error) {
-	return readLinuxSystemCounters(ctx, defaultProcStatPath)
-}
-
 // readLinuxCStates reads cpuidle residency counters. Linux exports time in
 // microseconds; HomeCloud's canonical duration unit is nanoseconds.
 func readLinuxCStates(ctx context.Context, cpuSysfsPath string) ([]MetricItem, error) {
