@@ -289,6 +289,9 @@ func (m *Manager) run(ctx context.Context) {
 					previous = &current
 					m.publish(ctx, itemsFor(current, nil, time.Now().UTC()))
 				}
+			} else {
+				previous = nil
+				lastCollectionFailed = false
 			}
 			m.publishFrequency(ctx)
 		case <-ticker.C:
@@ -393,6 +396,9 @@ func (m *Manager) publishCollectionError(ctx context.Context, cause error, alrea
 	}
 	*alreadyFailed = true
 	for _, sub := range m.snapshot() {
+		if isFrequencyTarget(sub.target) {
+			continue
+		}
 		nodeID := ""
 		if m.nodeID != nil {
 			nodeID = m.nodeID()
