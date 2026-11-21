@@ -131,20 +131,6 @@ func countersFromTimes(stat cpu.TimesStat) Counters {
 	}
 }
 
-func addCounters(dst *Counters, src Counters) {
-	dst.TotalSeconds += src.TotalSeconds
-	dst.IdleSeconds += src.IdleSeconds
-	dst.UserSeconds += src.UserSeconds
-	dst.SystemSeconds += src.SystemSeconds
-	dst.NiceSeconds += src.NiceSeconds
-	dst.IOWaitSeconds += src.IOWaitSeconds
-	dst.IRQSeconds += src.IRQSeconds
-	dst.SoftIRQSeconds += src.SoftIRQSeconds
-	dst.StealSeconds += src.StealSeconds
-	dst.GuestSeconds += src.GuestSeconds
-	dst.GuestNiceSeconds += src.GuestNiceSeconds
-}
-
 func validateCounters(c Counters) error {
 	values := []float64{
 		c.TotalSeconds, c.IdleSeconds, c.UserSeconds, c.SystemSeconds,
