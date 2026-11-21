@@ -526,14 +526,16 @@ func (m *Manager) publishExtendedError(ctx context.Context, target string, cause
 		return
 	}
 	*alreadyFailed = true
-	code, category, retryable := "METRIC_SOURCE_UNAVAILABLE", "source", true
+	code, category, retryable := "SOURCE_UNAVAILABLE", "source", true
 	if errors.Is(cause, ErrMetricUnsupported) {
-		code, category, retryable = "METRIC_UNSUPPORTED", "capability", false
+		code, category, retryable = "METRIC_UNSUPPORTED", "source", false
 	}
 	for _, sub := range m.snapshot() {
 		matches := false
 		switch target {
-		case MetricCStateTarget, MetricThrottlingTarget, MetricPressureTarget, MetricPerfTarget, MetricTemperature:
+		case MetricCStateTarget, MetricThrottlingTarget, MetricPressureTarget, MetricTemperature:
+			matches = sub.target == Target || sub.target == target || strings.HasPrefix(sub.target, target+".")
+		case MetricPerfTarget:
 			matches = sub.target == target || strings.HasPrefix(sub.target, target+".")
 		case "system.cpu":
 			matches = isSystemCounterTarget(sub.target)
@@ -553,7 +555,7 @@ func (m *Manager) publishExtendedError(ctx context.Context, target string, cause
 				"target": sub.target,
 				"error": map[string]any{
 					"code": code, "category": category,
-					"retryable": retryable, "message": cause.Error(),
+					"retryable": retryable, "message": "CPU metric source is unavailable",
 				},
 			},
 		})
@@ -632,8 +634,8 @@ func (m *Manager) publishCollectionError(ctx context.Context, cause error, alrea
 				"subscription_id": sub.id,
 				"target": sub.target,
 				"error": map[string]any{
-					"code": "METRIC_SOURCE_UNAVAILABLE", "category": "source",
-					"retryable": true, "message": cause.Error(),
+					"code": "SOURCE_UNAVAILABLE", "category": "source",
+					"retryable": true, "message": "CPU metric source is unavailable",
 				},
 			},
 		})
