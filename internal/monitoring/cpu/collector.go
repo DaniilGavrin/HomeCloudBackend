@@ -506,6 +506,15 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 		}
 		return reader.ReadSystemCounters(ctx)
 	}
+	readTemperature := func(ctx context.Context) ([]MetricItem, error) {
+		reader, ok := collector.(interface {
+			ReadTemperatureMetrics(context.Context) ([]MetricItem, error)
+		})
+		if !ok {
+			return nil, ErrMetricUnsupported
+		}
+		return reader.ReadTemperatureMetrics(ctx)
+	}
 	readPressure := func(ctx context.Context) ([]MetricItem, error) {
 		reader, ok := collector.(interface {
 			ReadPressureMetrics(context.Context) ([]MetricItem, error)
@@ -549,6 +558,9 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 	})
 	registry.MustRegister(MetricPressureTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
 		return readPressure(ctx)
+	})
+	registry.MustRegister(MetricTemperature, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+		return readTemperature(ctx)
 	})
 	registry.MustRegister(MetricPerfTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
 		return readPerf(ctx, MetricPerfTarget)
