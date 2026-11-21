@@ -48,8 +48,6 @@ var genericPerfEvents = []perfEventSpec{
 	cacheEvent(MetricPerfL1DReadMiss, uint64(unix.PERF_COUNT_HW_CACHE_L1D), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_MISS)),
 	cacheEvent(MetricPerfL1IReadAccess, uint64(unix.PERF_COUNT_HW_CACHE_L1I), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_ACCESS)),
 	cacheEvent(MetricPerfL1IReadMiss, uint64(unix.PERF_COUNT_HW_CACHE_L1I), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_MISS)),
-	cacheEvent(MetricPerfL2ReadAccess, uint64(unix.PERF_COUNT_HW_CACHE_L2), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_ACCESS)),
-	cacheEvent(MetricPerfL2ReadMiss, uint64(unix.PERF_COUNT_HW_CACHE_L2), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_MISS)),
 	cacheEvent(MetricPerfLLCReadAccess, uint64(unix.PERF_COUNT_HW_CACHE_LL), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_ACCESS)),
 	cacheEvent(MetricPerfLLCReadMiss, uint64(unix.PERF_COUNT_HW_CACHE_LL), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_MISS)),
 	cacheEvent(MetricPerfDTLBReadAccess, uint64(unix.PERF_COUNT_HW_CACHE_DTLB), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_ACCESS)),
@@ -63,6 +61,7 @@ type perfReader struct {
 	events []perfEventSpec
 	metricIDs []string
 	derivedIDs []string
+	unsupportedIDs []string
 	fds map[int]map[string]int
 	openErrors map[string]error
 	last map[string]uint64
@@ -77,6 +76,7 @@ func (c *SystemCollector) ReadPerfMetrics(ctx context.Context, targets ...string
 	metricIDs := selectPerfMetricIDs(targets)
 	eventIDs := selectPerfEventIDs(targets)
 	selectedEvents := make([]perfEventSpec, 0, len(eventIDs))
+	unsupportedIDs := make([]string, 0)
 	eventByID := make(map[string]perfEventSpec, len(genericPerfEvents))
 	for _, event := range genericPerfEvents {
 		eventByID[event.metricID] = event
@@ -84,6 +84,8 @@ func (c *SystemCollector) ReadPerfMetrics(ctx context.Context, targets ...string
 	for _, id := range eventIDs {
 		if event, ok := eventByID[id]; ok {
 			selectedEvents = append(selectedEvents, event)
+		} else {
+			unsupportedIDs = append(unsupportedIDs, id)
 		}
 	}
 	derivedIDs := make([]string, 0)
@@ -101,7 +103,7 @@ func (c *SystemCollector) ReadPerfMetrics(ctx context.Context, targets ...string
 		if c.perf != nil {
 			c.perf.close()
 		}
-		c.perf = newPerfReader(nil, err, selectedEvents, metricIDs, derivedIDs)
+		c.perf = newPerfReader(nil, err, selectedEvents, metricIDs, derivedIDs, unsupportedIDs)
 		return c.perf.read(ctx)
 	}
 	if c.perf == nil || !sameCPUList(c.perf.cpus, cpus) ||
@@ -110,7 +112,7 @@ func (c *SystemCollector) ReadPerfMetrics(ctx context.Context, targets ...string
 		if c.perf != nil {
 			c.perf.close()
 		}
-		c.perf = newPerfReader(cpus, nil, selectedEvents, metricIDs, derivedIDs)
+		c.perf = newPerfReader(cpus, nil, selectedEvents, metricIDs, derivedIDs, unsupportedIDs)
 	}
 	return c.perf.read(ctx)
 }
@@ -173,12 +175,13 @@ func sameStringList(a, b []string) bool {
 	return true
 }
 
-func newPerfReader(cpus []int, cpuListErr error, events []perfEventSpec, metricIDs, derivedIDs []string) *perfReader {
+func newPerfReader(cpus []int, cpuListErr error, events []perfEventSpec, metricIDs, derivedIDs, unsupportedIDs []string) *perfReader {
 	reader := &perfReader{
 		cpus: append([]int(nil), cpus...),
 		events: append([]perfEventSpec(nil), events...),
 		metricIDs: append([]string(nil), metricIDs...),
 		derivedIDs: append([]string(nil), derivedIDs...),
+		unsupportedIDs: append([]string(nil), unsupportedIDs...),
 		fds: make(map[int]map[string]int),
 		openErrors: make(map[string]error),
 		last: make(map[string]uint64),
@@ -238,7 +241,10 @@ func (r *perfReader) close() {
 func (r *perfReader) read(ctx context.Context) ([]MetricItem, error) {
 	now := time.Now().UTC()
 	values := make(map[string]uint64, len(r.events))
-	statuses := make(map[string]MetricItem, len(r.events))
+	statuses := make(map[string]MetricItem, len(r.events)+len(r.unsupportedIDs))
+	for _, metricID := range r.unsupportedIDs {
+		statuses[metricID] = statusItem(metricID, "", StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.perf_event_open", now)
+	}
 	for _, event := range r.events {
 		var total uint64
 		successes, failures := 0, 0
@@ -313,7 +319,15 @@ func (r *perfReader) read(ctx context.Context) ([]MetricItem, error) {
 		previousNumerator, previousNumeratorOK := r.last[numeratorID]
 		previousDenominator, previousDenominatorOK := r.last[denominatorID]
 		if !numeratorOK || !denominatorOK {
-			items = append(items, statusItem(metricID, "", StatusUnavailable, "source_unavailable", "PARTIAL_RESULT", "linux.perf_event_open", now))
+			numeratorStatus := statuses[numeratorID].Status
+			denominatorStatus := statuses[denominatorID].Status
+			if numeratorStatus == StatusUnsupported || denominatorStatus == StatusUnsupported {
+				items = append(items, statusItem(metricID, "", StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.perf_event_open", now))
+			} else if numeratorStatus == StatusPermissionDenied || denominatorStatus == StatusPermissionDenied {
+				items = append(items, statusItem(metricID, "", StatusPermissionDenied, "permission_denied", "SOURCE_PERMISSION_DENIED", "linux.perf_event_open", now))
+			} else {
+				items = append(items, statusItem(metricID, "", StatusUnavailable, "source_unavailable", "PARTIAL_RESULT", "linux.perf_event_open", now))
+			}
 			continue
 		}
 		if currentNumeratorStatus != StatusValid || currentDenominatorStatus != StatusValid ||
