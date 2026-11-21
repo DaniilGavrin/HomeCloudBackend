@@ -62,8 +62,12 @@ func TestReadLinuxFrequencyPolicies(t *testing.T) {
 			t.Errorf("missing %s for policy0", metricID)
 			continue
 		}
-		if item.Value != value || item.Unit != "Hz" {
-			t.Errorf("%s value/unit = %#v/%q, want %#v/Hz", metricID, item.Value, item.Unit, value)
+		wantUnit := "Hz"
+		if metricID == MetricFrequencyGovernor {
+			wantUnit = "string"
+		}
+		if item.Value != value || item.Unit != wantUnit {
+			t.Errorf("%s value/unit = %#v/%q, want %#v/%s", metricID, item.Value, item.Unit, value, wantUnit)
 		}
 	}
 	coreFrequency, ok := findMetric(items, MetricCoreFrequency, "cpu0")
