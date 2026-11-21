@@ -22,7 +22,11 @@ func TestParseCPUList(t *testing.T) {
 			t.Fatalf("parsed CPU list = %v, want %v", got, want)
 		}
 	}
-	for _, invalid := range []string{"", "2-1", "a", "0-99999", "1,,2"} {
+	whitespace, err := parseCPUList("0 1 3-4")
+	if err != nil || len(whitespace) != 4 || whitespace[0] != 0 || whitespace[3] != 4 {
+		t.Fatalf("whitespace-separated CPU list = %v, err=%v", whitespace, err)
+	}
+	for _, invalid := range []string{"", "2-1", "a", "0-99999", "1,,2", "0,0"} {
 		if _, err := parseCPUList(invalid); err == nil {
 			t.Errorf("parseCPUList(%q) succeeded, want error", invalid)
 		}
@@ -36,7 +40,7 @@ func TestReadLinuxFrequencyPolicies(t *testing.T) {
 	root := t.TempDir()
 	policy := filepath.Join(root, "cpufreq", "policy0")
 	writeSysfsTestFile(t, filepath.Join(policy, "scaling_cur_freq"), "1800000\n")
-	writeSysfsTestFile(t, filepath.Join(policy, "affected_cpus"), "0")
+	writeSysfsTestFile(t, filepath.Join(policy, "affected_cpus"), "0 1")
 	writeSysfsTestFile(t, filepath.Join(policy, "cpuinfo_min_freq"), "800000\n")
 	writeSysfsTestFile(t, filepath.Join(policy, "cpuinfo_max_freq"), "3200000\n")
 	writeSysfsTestFile(t, filepath.Join(policy, "base_frequency"), "2400000\n")
@@ -46,8 +50,8 @@ func TestReadLinuxFrequencyPolicies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 6 {
-		t.Fatalf("frequency items = %d, want 6 including per-core frequency: %#v", len(items), items)
+	if len(items) != 7 {
+		t.Fatalf("frequency items = %d, want 7 including two per-core frequency values: %#v", len(items), items)
 	}
 	expected := map[string]any{
 		MetricFrequencyCurrent: int64(1800000000),
@@ -70,9 +74,11 @@ func TestReadLinuxFrequencyPolicies(t *testing.T) {
 			t.Errorf("%s value/unit = %#v/%q, want %#v/%s", metricID, item.Value, item.Unit, value, wantUnit)
 		}
 	}
-	coreFrequency, ok := findMetric(items, MetricCoreFrequency, "cpu0")
-	if !ok || coreFrequency.Value != int64(1800000000) || coreFrequency.Unit != "Hz" {
-		t.Fatalf("per-core frequency = %#v, found=%v; want 1800000000 Hz", coreFrequency, ok)
+	for _, cpuID := range []string{"cpu0", "cpu1"} {
+		coreFrequency, ok := findMetric(items, MetricCoreFrequency, cpuID)
+		if !ok || coreFrequency.Value != int64(1800000000) || coreFrequency.Unit != "Hz" {
+			t.Fatalf("per-core frequency for %s = %#v, found=%v; want 1800000000 Hz", cpuID, coreFrequency, ok)
+		}
 	}
 }
 
