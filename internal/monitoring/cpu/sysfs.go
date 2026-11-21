@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	gopsutilcpu "github.com/shirou/gopsutil/v4/cpu"
 )
@@ -64,51 +65,78 @@ const (
 
 var ErrMetricUnsupported = errors.New("CPU metric is not supported by this platform or hardware")
 
-// readLinuxFrequency reads the cpufreq policy interface. scaling_cur_freq is
-// intentionally reported as the driver's last/current scaling value; it is
-// not presented as a hardware-instantaneous APERF/MPERF measurement.
+// readLinuxFrequency reads cpufreq policy values. Linux sysfs reports
+// frequencies in kHz; Monitoring's canonical unit is Hz.
 func readLinuxFrequency(ctx context.Context, cpuSysfsPath string) ([]MetricItem, error) {
+	now := time.Now().UTC()
+	metricIDs := []string{MetricFrequencyCurrent, MetricFrequencyMin, MetricFrequencyMax, MetricFrequencyBase, MetricFrequencyGovernor}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if runtime.GOOS != "linux" {
-		return nil, nil
+		items := make([]MetricItem, 0, len(metricIDs))
+		for _, id := range metricIDs {
+			items = append(items, statusItem(id, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "platform.cpu.frequency", now))
+		}
+		return items, nil
 	}
 	policies, err := filepath.Glob(filepath.Join(cpuSysfsPath, "cpufreq", "policy[0-9]*"))
 	if err != nil {
-		return nil, fmt.Errorf("list CPU frequency policies: %w", err)
+		status, reason, code := classifySourceError(err)
+		items := make([]MetricItem, 0, len(metricIDs))
+		for _, id := range metricIDs {
+			items = append(items, statusItem(id, "", status, reason, code, "linux.sysfs.cpufreq", now))
+		}
+		return items, nil
 	}
-	items := make([]MetricItem, 0, len(policies)*5)
+	if len(policies) == 0 {
+		items := make([]MetricItem, 0, len(metricIDs))
+		for _, id := range metricIDs {
+			items = append(items, statusItem(id, "", StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.sysfs.cpufreq", now))
+		}
+		return items, nil
+	}
+
+	items := make([]MetricItem, 0, len(policies)*len(metricIDs))
 	for _, policyPath := range policies {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		objectID := filepath.Base(policyPath)
-		appendFrequency := func(metricID, filename, unit string) {
-			value, readErr := readSysfsValue(filepath.Join(policyPath, filename))
+		appendFrequency := func(metricID, filename, unit string, fallback string) {
+			path := filepath.Join(policyPath, filename)
+			value, readErr := readSysfsValue(path)
+			if readErr != nil && fallback != "" && errors.Is(readErr, os.ErrNotExist) {
+				value, readErr = readSysfsValue(filepath.Join(policyPath, fallback))
+			}
 			if readErr != nil {
+				status, reason, code := classifySourceError(readErr)
+				if errors.Is(readErr, os.ErrNotExist) {
+					status, reason, code = StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED"
+				}
+				items = append(items, statusItem(metricID, objectID, status, reason, code, "linux.sysfs.cpufreq", now))
 				return
 			}
 			var parsed any = value
-			if unit == "kHz" {
-				number, parseErr := strconv.ParseInt(value, 10, 64)
-				if parseErr != nil || number <= 0 {
+			if unit == "Hz" {
+				number, parseErr := strconv.ParseUint(value, 10, 64)
+				if parseErr != nil || number == 0 || number > uint64(^uint64(0)>>1)/1000 {
+					items = append(items, statusItem(metricID, objectID, StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.sysfs.cpufreq", now))
 					return
 				}
-				parsed = number
+				parsed = int64(number * 1000)
 			}
 			items = append(items, MetricItem{
 				MetricID: metricID, ObjectID: objectID, Value: parsed, Unit: unit,
+				ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid,
+				SourceID: "linux.sysfs.cpufreq",
 			})
 		}
-		appendFrequency(MetricFrequencyCurrent, "scaling_cur_freq", "kHz")
-		appendFrequency(MetricFrequencyMin, "cpuinfo_min_freq", "kHz")
-		appendFrequency(MetricFrequencyMax, "cpuinfo_max_freq", "kHz")
-		appendFrequency(MetricFrequencyBase, "base_frequency", "kHz")
-		if _, exists := findMetric(items, MetricFrequencyBase, objectID); !exists {
-			appendFrequency(MetricFrequencyBase, "cpuinfo_base_freq", "kHz")
-		}
-		appendFrequency(MetricFrequencyGovernor, "scaling_governor", "string")
+		appendFrequency(MetricFrequencyCurrent, "scaling_cur_freq", "Hz", "")
+		appendFrequency(MetricFrequencyMin, "cpuinfo_min_freq", "Hz", "")
+		appendFrequency(MetricFrequencyMax, "cpuinfo_max_freq", "Hz", "")
+		appendFrequency(MetricFrequencyBase, "base_frequency", "Hz", "cpuinfo_base_freq")
+		appendFrequency(MetricFrequencyGovernor, "scaling_governor", "string", "")
 	}
 	return items, nil
 }
