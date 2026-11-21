@@ -186,201 +186,20 @@ func (m *Manager) Wake() {
 	}
 }
 
-func (m *Manager) Cancel(sessionID int64, id string) {
+func (m *Manager) Cancel(sessionID int64, subscriptionID string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	sub, ok := m.subs[id]
-	if !ok || sub.sessionID != sessionID {
-		return
-	}
-	m.removeLocked(sub)
-}
-
-func (m *Manager) DetachSession(sessionID int64) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, id := range m.bySession[sessionID] {
-		if sub, ok := m.subs[id]; ok {
-			m.removeLocked(sub)
-		}
-	}
-}
-
-func (m *Manager) removeLocked(sub subscription) {
-	delete(m.subs, sub.id)
-	owned := m.bySession[sub.sessionID]
-	delete(owned, sub.target)
-	if len(owned) == 0 {
-		delete(m.bySession, sub.sessionID)
-	}
-}
-
-func (m *Manager) Close() {
-	m.mu.Lock()
 	if m.closed {
-		m.mu.Unlock()
-		m.wg.Wait()
-		return
-	}
-	m.closed = true
-	if m.cancel != nil {
-		m.cancel()
-		m.cancel = nil
-	}
-	clear(m.subs)
-	clear(m.bySession)
-	m.mu.Unlock()
-	m.wg.Wait()
-	m.stopPerfReader()
-}
-
-func (m *Manager) hasSubscribers() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return len(m.subs) > 0
-}
-
-func isFrequencyTarget(target string) bool {
-	return target == MetricFrequencyTarget || target == MetricCoreFrequency || strings.HasPrefix(target, MetricFrequencyTarget+".")
-}
-
-func isCStateTarget(target string) bool {
-	return target == MetricCStateTarget || strings.HasPrefix(target, MetricCStateTarget+".")
-}
-
-func isThrottlingTarget(target string) bool {
-	return target == MetricThrottlingTarget || strings.HasPrefix(target, MetricThrottlingTarget+".")
-}
-
-func isPressureTarget(target string) bool {
-	return target == MetricPressureTarget || strings.HasPrefix(target, MetricPressureTarget+".")
-}
-
-func isTemperatureTarget(target string) bool {
-	return target == MetricTemperature
-}
-
-func isPerfTarget(target string) bool {
-	return target == MetricPerfTarget || strings.HasPrefix(target, MetricPerfTarget+".")
-}
-
-func isSystemCounterTarget(target string) bool {
-	switch target {
-	case MetricInterrupts, MetricContextSwitches, MetricForks,
-		MetricProcessesRunning, MetricProcessesBlocked, MetricProcessesTarget, MetricRunQueue:
-		return true
-	default:
 		return false
 	}
-}
-
-func (m *Manager) hasMatchingTarget(match func(string) bool) bool {
-	for _, sub := range m.snapshot() {
-		if match(sub.target) {
-			return true
-		}
+	if _, exists := m.subs[sessionID][subscriptionID]; !exists {
+		return false
 	}
-	return false
-}
-
-func (m *Manager) hasCPUSubscribers() bool {
-	return m.hasMatchingTarget(func(target string) bool {
-		return target == Target || (!isFrequencyTarget(target) &&
-			!isCStateTarget(target) && !isThrottlingTarget(target) && !isSystemCounterTarget(target) &&
-			!isPressureTarget(target) && !isPerfTarget(target) && !isTemperatureTarget(target))
-	})
-}
-
-func (m *Manager) hasFrequencySubscribers() bool {
-	return m.hasMatchingTarget(func(target string) bool {
-		return target == Target || isFrequencyTarget(target)
-	})
-}
-
-func (m *Manager) hasCStateSubscribers() bool {
-	return m.hasMatchingTarget(func(target string) bool {
-		return target == Target || isCStateTarget(target)
-	})
-}
-
-func (m *Manager) hasThrottlingSubscribers() bool {
-	return m.hasMatchingTarget(func(target string) bool {
-		return target == Target || isThrottlingTarget(target)
-	})
-}
-
-func (m *Manager) hasSystemCounterSubscribers() bool {
-	return m.hasMatchingTarget(func(target string) bool {
-		return target == Target || isSystemCounterTarget(target)
-	})
-}
-
-func (m *Manager) hasPressureSubscribers() bool {
-	return m.hasMatchingTarget(func(target string) bool {
-		return target == Target || isPressureTarget(target)
-	})
-}
-
-func (m *Manager) hasTemperatureSubscribers() bool {
-	return m.hasMatchingTarget(func(target string) bool {
-		return target == Target || isTemperatureTarget(target)
-	})
-}
-
-func (m *Manager) hasPerfSubscribers() bool {
-	return m.hasMatchingTarget(func(target string) bool {
-		// PMU collection is explicitly opt-in; the broad system.cpu group must
-		// not open hardware counters implicitly.
-		return isPerfTarget(target)
-	})
-}
-
-func (m *Manager) publishFrequency(ctx context.Context) {
-	if !m.hasFrequencySubscribers() {
-		return
+	delete(m.subs[sessionID], subscriptionID)
+	if len(m.subs[sessionID]) == 0 {
+		delete(m.subs, sessionID)
 	}
-	reader, ok := m.collector.(interface {
-		ReadFrequency(context.Context) ([]MetricItem, error)
-	})
-	if !ok {
-		m.publishFrequencyError(ctx, errors.New("CPU frequency provider is unavailable"))
-		return
-	}
-	items, err := reader.ReadFrequency(ctx)
-	if err != nil {
-		m.publishFrequencyError(ctx, err)
-		return
-	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	for i := range items {
-		items[i].ObservedAt = now
-	}
-	m.publish(ctx, items)
-}
-
-func (m *Manager) publishFrequencyError(ctx context.Context, cause error) {
-	for _, sub := range m.snapshot() {
-		if sub.target != Target && !isFrequencyTarget(sub.target) {
-			continue
-		}
-		nodeID := ""
-		if m.nodeID != nil {
-			nodeID = m.nodeID()
-		}
-		deliveryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		_ = sub.deliver(deliveryCtx, commands.Outbound{
-			V: 1, Type: "subscription.error", NodeID: nodeID,
-			Payload: map[string]any{
-				"subscription_id": sub.id,
-				"target": sub.target,
-				"error": map[string]any{
-					"code": "METRIC_SOURCE_UNAVAILABLE", "category": "source",
-					"retryable": true, "message": cause.Error(),
-				},
-			},
-		})
-		cancel()
-	}
+	return true
 }
 
 func (m *Manager) snapshot() []subscription {
