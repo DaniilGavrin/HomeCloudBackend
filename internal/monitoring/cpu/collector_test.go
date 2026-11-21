@@ -3,6 +3,8 @@ package cpu
 import (
 	"testing"
 	"time"
+
+	"github.com/shirou/gopsutil/v4/cpu"
 )
 
 func TestCalculateTotalUsage(t *testing.T) {
@@ -113,5 +115,19 @@ func TestPerCoreMetricsUseObjectIDAndBaseline(t *testing.T) {
 		if item.Value != float64(50) {
 			t.Fatalf("core %s usage = %v, want 50", item.ObjectID, item.Value)
 		}
+	}
+}
+
+func TestCountersFromTimesDoesNotDoubleCountGuest(t *testing.T) {
+	got := countersFromTimes(cpu.TimesStat{
+		CPU: "cpu0", User: 10, System: 5, Nice: 2, Idle: 20,
+		Iowait: 3, Irq: 1, Softirq: 1, Steal: 1, Guest: 4, GuestNice: 2,
+	})
+	const wantTotal = 43.0
+	if got.TotalSeconds != wantTotal {
+		t.Fatalf("total seconds = %v, want %v (guest buckets are already included in user/nice)", got.TotalSeconds, wantTotal)
+	}
+	if got.GuestSeconds != 4 || got.GuestNiceSeconds != 2 {
+		t.Fatalf("guest counters = (%v, %v), want (4, 2)", got.GuestSeconds, got.GuestNiceSeconds)
 	}
 }
