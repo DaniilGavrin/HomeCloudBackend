@@ -329,6 +329,7 @@ func (s *Server) Handle(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusPolicyViolation, "invalid hello")
 		return
 	}
+	s.traceWSMessage("in", hello.DeviceID, hello.ClientType, raw)
 
 	// Zero-valued test configurations must not create an already-expired
 	// response context. NewPeer uses the same 10-second fallback internally.
