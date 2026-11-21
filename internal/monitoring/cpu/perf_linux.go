@@ -39,6 +39,7 @@ type perfReader struct {
 	fds map[int]map[string]int
 	openErrors map[string]error
 	last map[string]uint64
+	lastStatus map[string]string
 	lastAt time.Time
 }
 
@@ -106,6 +107,7 @@ func newPerfReader(cpus []int, cpuListErr error) *perfReader {
 		fds: make(map[int]map[string]int),
 		openErrors: make(map[string]error),
 		last: make(map[string]uint64),
+		lastStatus: make(map[string]string),
 	}
 	if cpuListErr != nil {
 		for _, event := range genericPerfEvents {
@@ -234,6 +236,9 @@ func (r *perfReader) read(ctx context.Context) ([]MetricItem, error) {
 		}
 		previousNumerator, previousNumeratorOK := r.last[numeratorID]
 		previousDenominator, previousDenominatorOK := r.last[denominatorID]
+		if r.lastStatus[numeratorID] != StatusValid || r.lastStatus[denominatorID] != StatusValid {
+			return statusItem(metricID, "", StatusPartial, "previous_source_counter_partial", "PARTIAL_RESULT", "linux.perf_event_open", now)
+		}
 		if !numeratorOK || !denominatorOK {
 			return statusItem(metricID, "", StatusUnavailable, "source_unavailable", "PARTIAL_RESULT", "linux.perf_event_open", now)
 		}
@@ -269,6 +274,10 @@ func (r *perfReader) read(ctx context.Context) ([]MetricItem, error) {
 		derive(MetricPerfCacheMissRate, MetricPerfCacheMisses, MetricPerfCacheReferences, true),
 	)
 	r.last = values
+	r.lastStatus = make(map[string]string, len(statuses))
+	for metricID, item := range statuses {
+		r.lastStatus[metricID] = item.Status
+	}
 	r.lastAt = now
 	return items, nil
 }
