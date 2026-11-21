@@ -48,6 +48,7 @@ func readLinuxCStates(ctx context.Context, cpuSysfsPath string) ([]MetricItem, e
 		return []MetricItem{statusItem(MetricCStateTarget, "", StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.sysfs.cpuidle", now)}, nil
 	}
 	items := make([]MetricItem, 0, len(states))
+	seenCPUs := make(map[string]bool)
 	for _, statePath := range states {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -56,6 +57,7 @@ func readLinuxCStates(ctx context.Context, cpuSysfsPath string) ([]MetricItem, e
 		cpuID := filepath.Base(cpuDir)
 		stateID := filepath.Base(statePath)
 		objectID := cpuID + "/" + stateID
+		seenCPUs[cpuID] = true
 		name, nameErr := readSysfsValue(filepath.Join(statePath, "name"))
 		if nameErr != nil || strings.TrimSpace(name) == "" {
 			if nameErr == nil {
@@ -89,6 +91,16 @@ func readLinuxCStates(ctx context.Context, cpuSysfsPath string) ([]MetricItem, e
 			Unit: "ns", ObservedAt: now.Format(time.RFC3339Nano),
 			Status: StatusValid, SourceID: "linux.sysfs.cpuidle",
 		})
+	}
+	if presentText, presentErr := readSysfsValue(filepath.Join(cpuSysfsPath, "present")); presentErr == nil {
+		if cpuIDs, parseErr := parseCPUList(presentText); parseErr == nil {
+			for _, cpuID := range cpuIDs {
+				cpuName := fmt.Sprintf("cpu%d", cpuID)
+				if !seenCPUs[cpuName] {
+					items = append(items, statusItem(MetricCStateTarget, cpuName, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.sysfs.cpuidle", now))
+				}
+			}
+		}
 	}
 	return items, nil
 }
