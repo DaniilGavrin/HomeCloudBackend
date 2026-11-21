@@ -137,6 +137,11 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 		cpuPath := filepath.Join(cpuSysfsPath, cpuName)
 		topologyPath := filepath.Join(cpuPath, "topology")
 		packageID, packageErr := readSysfsValue(filepath.Join(topologyPath, "physical_package_id"))
+		packageNumber, packageParseErr := strconv.Atoi(packageID)
+		packageKnown := packageErr == nil && packageParseErr == nil && packageNumber >= 0
+		if packageKnown {
+			packageID = strconv.Itoa(packageNumber)
+		}
 		throttlePath := filepath.Join(cpuPath, "thermal_throttle")
 
 		// The kernel keeps core-level throttle/power counters per logical CPU.
@@ -150,7 +155,7 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 
 		// Package-level counters are broadcast to every CPU in the package.
 		// Emit one copy per package to avoid multiplying the same counter.
-		if packageErr == nil && packageID != "" {
+		if packageKnown {
 			packageObjectID := "package" + packageID
 			if !seenPackageEvents[packageID] {
 				appendThrottleCounter(&items, throttlePath, "package_throttle_count",
@@ -181,12 +186,21 @@ func appendThrottleCounter(items *[]MetricItem, dir, filename, metricID, objectI
 		return
 	}
 	value, err := strconv.ParseUint(valueText, 10, 64)
-	if err != nil || value > math.MaxInt64/scale {
+	if err != nil {
 		return
+	}
+	var normalized any
+	if unit == "count" {
+		normalized = value
+	} else {
+		if scale == 0 || value > math.MaxInt64/scale {
+			return
+		}
+		normalized = int64(value * scale)
 	}
 	*items = append(*items, MetricItem{
 		MetricID: metricID, ObjectID: objectID,
-		Value: int64(value * scale), Unit: unit, ObservedAt: observedAt,
+		Value: normalized, Unit: unit, ObservedAt: observedAt,
 	})
 }
 
