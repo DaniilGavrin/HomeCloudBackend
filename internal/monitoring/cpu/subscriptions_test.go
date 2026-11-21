@@ -84,6 +84,10 @@ func TestNewCPUTargetsAreAccepted(t *testing.T) {
 		MetricCoreTotalUsage, MetricCoreUser, MetricFrequencyTarget,
 		MetricFrequencyCurrent, MetricFrequencyMin, MetricFrequencyMax,
 		MetricFrequencyBase, MetricFrequencyGovernor,
+		MetricCStateTarget, "system.cpu.idle.cstate.c1", MetricThrottlingTarget,
+		MetricThrottleThermalCoreEvents, MetricThrottleThermalCoreDuration,
+		MetricThrottleThermalPackageEvents, MetricThrottleThermalPackageDuration,
+		MetricInterrupts, MetricContextSwitches,
 	}
 	for _, target := range targets {
 		if _, err := manager.Subscribe(1, target, EffectiveInterval, deliver); err != nil {
@@ -155,6 +159,117 @@ func TestFrequencyGroupSubscriptionPublishesAllFrequencyMetrics(t *testing.T) {
 	}
 	if items[0].ObjectID != "policy0" || items[0].ObservedAt == "" {
 		t.Fatalf("frequency item missing policy object or timestamp: %#v", items[0])
+	}
+}
+
+type extendedTestCollector struct{ testCollector }
+
+func (extendedTestCollector) ReadCStates(context.Context) ([]MetricItem, error) {
+	return []MetricItem{
+		{MetricID: "system.cpu.idle.cstate.c1", ObjectID: "cpu0/state1", Value: int64(123000), Unit: "ns"},
+		{MetricID: "system.cpu.idle.cstate.c2", ObjectID: "cpu0/state2", Value: int64(456000), Unit: "ns"},
+	}, nil
+}
+
+func (extendedTestCollector) ReadThrottling(context.Context) ([]MetricItem, error) {
+	return []MetricItem{
+		{MetricID: MetricThrottleThermalCoreEvents, ObjectID: "package0/core0", Value: uint64(2), Unit: "count"},
+		{MetricID: MetricThrottleThermalCoreDuration, ObjectID: "package0/core0", Value: int64(3000000), Unit: "ns"},
+	}, nil
+}
+
+func (extendedTestCollector) ReadSystemCounters(context.Context) ([]MetricItem, error) {
+	return []MetricItem{
+		{MetricID: MetricInterrupts, Value: uint64(100), Unit: "count"},
+		{MetricID: MetricContextSwitches, Value: uint64(200), Unit: "count"},
+	}, nil
+}
+
+func TestExtendedCPUSubscriptionsPublishAndFilterMetrics(t *testing.T) {
+	tests := []struct {
+		name string
+		target string
+		publish func(*Manager, *bool)
+		wantMetric string
+	}{
+		{
+			name: "C-state group", target: MetricCStateTarget,
+			publish: func(m *Manager, failed *bool) { m.publishCStates(context.Background(), failed) },
+			wantMetric: "system.cpu.idle.cstate.c1",
+		},
+		{
+			name: "throttling group", target: MetricThrottlingTarget,
+			publish: func(m *Manager, failed *bool) { m.publishThrottling(context.Background(), failed) },
+			wantMetric: MetricThrottleThermalCoreEvents,
+		},
+		{
+			name: "interrupts", target: MetricInterrupts,
+			publish: func(m *Manager, failed *bool) { m.publishSystemCounters(context.Background(), failed) },
+			wantMetric: MetricInterrupts,
+		},
+		{
+			name: "context switches", target: MetricContextSwitches,
+			publish: func(m *Manager, failed *bool) { m.publishSystemCounters(context.Background(), failed) },
+			wantMetric: MetricContextSwitches,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manager := NewManager(extendedTestCollector{}, func() string { return "node-test" })
+			defer manager.Close()
+			var delivered commands.Outbound
+			deliver := func(_ context.Context, message commands.Outbound) error {
+				delivered = message
+				return nil
+			}
+			if _, err := manager.Subscribe(1, test.target, EffectiveInterval, deliver); err != nil {
+				t.Fatalf("subscribe: %v", err)
+			}
+			failed := false
+			test.publish(manager, &failed)
+			if failed {
+				t.Fatal("provider unexpectedly marked as failed")
+			}
+			payload, ok := delivered.Payload.(map[string]any)
+			if !ok {
+				t.Fatalf("payload type = %T, want map", delivered.Payload)
+			}
+			items, ok := payload["items"].([]MetricItem)
+			if !ok || len(items) == 0 {
+				t.Fatalf("published items = %#v", payload["items"])
+			}
+			for _, item := range items {
+				if item.MetricID != test.wantMetric && test.target != MetricCStateTarget {
+					t.Errorf("unexpected metric %q for target %q", item.MetricID, test.target)
+				}
+			}
+		})
+	}
+}
+
+func TestUnsupportedExtendedProviderReportsCapabilityError(t *testing.T) {
+	manager := NewManager(testCollector{}, func() string { return "node-test" })
+	defer manager.Close()
+	var delivered commands.Outbound
+	deliver := func(_ context.Context, message commands.Outbound) error {
+		delivered = message
+		return nil
+	}
+	if _, err := manager.Subscribe(1, MetricCStateTarget, EffectiveInterval, deliver); err != nil {
+		t.Fatal(err)
+	}
+	failed := false
+	manager.publishCStates(context.Background(), &failed)
+	if !failed {
+		t.Fatal("expected provider failure state")
+	}
+	if delivered.Type != "subscription.error" {
+		t.Fatalf("message type = %q, want subscription.error", delivered.Type)
+	}
+	payload := delivered.Payload.(map[string]any)
+	errData := payload["error"].(map[string]any)
+	if errData["code"] != "METRIC_UNSUPPORTED" || errData["retryable"] != false {
+		t.Fatalf("unexpected unsupported error: %#v", errData)
 	}
 }
 
