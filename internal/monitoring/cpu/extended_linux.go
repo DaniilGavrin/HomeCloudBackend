@@ -214,23 +214,46 @@ func hasThrottleObject(items []MetricItem, metricID, objectID string) bool {
 }
 
 // readLinuxSystemCounters reads host-wide cumulative counters and scheduler
-// gauges from /proc/stat. The Linux "processes" field counts tasks created
-// since boot (including clone-created tasks); procs_running and procs_blocked
-// are instantaneous task counts. Rates are intentionally not calculated here.
+// gauges from /proc/stat. Linux procs_running counts tasks that are running or
+// runnable; it is the kernel's host-wide run-queue gauge and is not Load Average.
 func readLinuxSystemCounters(ctx context.Context, procStatPath string) ([]MetricItem, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if runtime.GOOS != "linux" {
-		return nil, ErrMetricUnsupported
+		now := time.Now().UTC()
+		items := make([]MetricItem, 0, 6)
+		for _, metricID := range []string{MetricInterrupts, MetricContextSwitches, MetricForks, MetricProcessesRunning, MetricProcessesBlocked, MetricRunQueue} {
+			items = append(items, statusItem(metricID, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "platform.proc.stat", now))
+		}
+		return items, nil
 	}
+	now := time.Now().UTC()
 	file, err := os.Open(procStatPath)
 	if err != nil {
-		return nil, fmt.Errorf("open proc stat: %w", err)
+		status, reason, code := classifySourceError(err)
+		items := make([]MetricItem, 0, 6)
+		for _, metricID := range []string{MetricInterrupts, MetricContextSwitches, MetricForks, MetricProcessesRunning, MetricProcessesBlocked, MetricRunQueue} {
+			items = append(items, statusItem(metricID, "", status, reason, code, "linux.proc.stat", now))
+		}
+		return items, nil
 	}
 	defer file.Close()
 
+	type counterSpec struct {
+		key string
+		metricID string
+	}
+	specs := []counterSpec{
+		{key: "intr", metricID: MetricInterrupts},
+		{key: "ctxt", metricID: MetricContextSwitches},
+		{key: "processes", metricID: MetricForks},
+		{key: "procs_running", metricID: MetricProcessesRunning},
+		{key: "procs_blocked", metricID: MetricProcessesBlocked},
+		{key: "procs_running", metricID: MetricRunQueue},
+	}
 	values := make(map[string]uint64, 5)
+	invalid := make(map[string]bool, 5)
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
@@ -245,37 +268,40 @@ func readLinuxSystemCounters(ctx context.Context, procStatPath string) ([]Metric
 		case "intr", "ctxt", "processes", "procs_running", "procs_blocked":
 			value, parseErr := strconv.ParseUint(fields[1], 10, 64)
 			if parseErr != nil {
-				return nil, fmt.Errorf("parse /proc/stat %s counter: %w", fields[0], parseErr)
+				invalid[fields[0]] = true
+				continue
 			}
 			values[fields[0]] = value
 		}
-		if len(values) == 5 {
+		if len(values)+len(invalid) >= 5 {
 			break
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("read proc stat: %w", err)
-	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	items := make([]MetricItem, 0, 5)
-	for _, counter := range []struct {
-		key      string
-		metricID string
-	}{
-		{key: "intr", metricID: MetricInterrupts},
-		{key: "ctxt", metricID: MetricContextSwitches},
-		{key: "processes", metricID: MetricForks},
-		{key: "procs_running", metricID: MetricProcessesRunning},
-		{key: "procs_blocked", metricID: MetricProcessesBlocked},
-	} {
-		if value, ok := values[counter.key]; ok {
-			items = append(items, MetricItem{
-				MetricID: counter.metricID, Value: value, Unit: "count", ObservedAt: now,
-			})
+	if scanErr := scanner.Err(); scanErr != nil {
+		status, reason, code := classifySourceError(scanErr)
+		items := make([]MetricItem, 0, len(specs))
+		for _, spec := range specs {
+			items = append(items, statusItem(spec.metricID, "", status, reason, code, "linux.proc.stat", now))
 		}
+		return items, nil
 	}
-	if len(items) == 0 {
-		return nil, errors.Join(ErrMetricUnsupported, errors.New("/proc/stat does not expose supported CPU counters"))
+
+	items := make([]MetricItem, 0, len(specs))
+	for _, spec := range specs {
+		if invalid[spec.key] {
+			items = append(items, statusItem(spec.metricID, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.proc.stat", now))
+			continue
+		}
+		value, ok := values[spec.key]
+		if !ok {
+			items = append(items, statusItem(spec.metricID, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "linux.proc.stat", now))
+			continue
+		}
+		items = append(items, MetricItem{
+			MetricID: spec.metricID, Value: value, Unit: "count",
+			ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid,
+			SourceID: "linux.proc.stat",
+		})
 	}
 	return items, nil
 }
