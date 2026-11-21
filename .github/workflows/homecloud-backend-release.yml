@@ -1,4 +1,4 @@
-name: "HomeCloudBackend | CI/CD Windows + Linux"
+name: "HomeCloudBackend | CI/CD Linux"
 
 # Independent of Jira. Each successful push to main produces a pre-release.
 "on":
@@ -50,63 +50,8 @@ jobs:
           CGO_ENABLED: "1"
         run: go test -race -count=1 ./internal/mediarooms
 
-  windows:
-    name: "2A. Build Windows x64"
-    needs: validate
-    runs-on: windows-latest
-    timeout-minutes: 35
-    env:
-      GOOS: windows
-      GOARCH: amd64
-      CGO_ENABLED: "0"
-      OUTPUT_NAME: HomeCloudBackend-windows-amd64.exe
-
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v7
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Test Windows implementation
-        shell: pwsh
-        run: |
-          go test -count=1 ./...
-          if ($LASTEXITCODE -ne 0) { throw 'Windows tests failed' }
-
-      - name: Compile Backend from repository root
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          go build -trimpath -ldflags="-s -w" -o "dist/$env:OUTPUT_NAME" .
-          if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
-          if (-not (Test-Path "dist/$env:OUTPUT_NAME") -or (Get-Item "dist/$env:OUTPUT_NAME").Length -lt 1024) {
-            throw 'Windows executable is missing or implausibly small'
-          }
-
-      - name: Generate Windows SHA-256
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $bin = "dist/$env:OUTPUT_NAME"
-          $hash = (Get-FileHash -Path $bin -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  $env:OUTPUT_NAME" | Set-Content -Path "$bin.sha256" -Encoding ascii
-          Write-Host "Windows SHA-256: $hash"
-
-      - name: Upload Windows binary
-        uses: actions/upload-artifact@v7
-        with:
-          name: homecloud-backend-windows-amd64
-          path: dist/
-          if-no-files-found: error
-          retention-days: 7
-
   linux:
-    name: "2B. Build Linux x64"
+    name: "2. Build Linux x64"
     needs: validate
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -154,7 +99,6 @@ jobs:
   release:
     name: "3. Verify and publish GitHub Release"
     needs:
-      - windows
       - linux
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -162,46 +106,28 @@ jobs:
       contents: write
 
     steps:
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v7
-        with:
-          name: homecloud-backend-windows-amd64
-          path: downloaded/windows
-
       - name: Download Linux artifact
         uses: actions/download-artifact@v7
         with:
           name: homecloud-backend-linux-amd64
           path: downloaded/linux
 
-      - name: Verify checksums and executable formats
+      - name: Verify checksum and executable format
         shell: bash
         run: |
           set -euo pipefail
-          WIN=HomeCloudBackend-windows-amd64.exe
           LINUX=HomeCloudBackend-linux-amd64
 
-          # A single executable and a checksum file, nothing else.
-          test "$(find downloaded/windows -maxdepth 1 -type f | wc -l)" -eq 2
           test "$(find downloaded/linux -maxdepth 1 -type f | wc -l)" -eq 2
-
-          (
-            cd downloaded/windows
-            sha256sum -c "$WIN.sha256"
-            test -s "$WIN"
-            # PE/COFF begins with MZ.
-            test "$(od -An -tx1 -N2 "$WIN" | tr -d ' \n')" = 4d5a
-          )
           (
             cd downloaded/linux
             sha256sum -c "$LINUX.sha256"
             test -s "$LINUX"
             # ELF magic.
-            test "$(od -An -tx1 -N4 "$LINUX" | tr -d ' \n')" = 7f454c46
+            test "$(od -An -tx1 -N4 "$LINUX" | tr -d ' \\n')" = 7f454c46
           )
 
           mkdir -p release-assets
-          cp "downloaded/windows/$WIN" "release-assets/$WIN"
           cp "downloaded/linux/$LINUX" "release-assets/$LINUX"
           chmod +x "release-assets/$LINUX"
 
@@ -210,18 +136,17 @@ jobs:
         run: |
           set -euo pipefail
           {
-            echo 'Automated **HomeCloudBackend** build from `main`.'
+            echo 'Automated **HomeCloudBackend** Linux build from `main`.'
             echo
-            echo "- Commit: \`$GITHUB_SHA\`"
-            echo '- Architectures: Windows amd64 and Linux amd64'
-            echo '- Go version: taken from `go.mod`; CGO disabled for released binaries'
+            echo "Commit: `$GITHUB_SHA`"
+            echo '- Target: Linux amd64'
+            echo '- Go version: taken from `go.mod`; CGO disabled for released binary'
             echo '- Tests: `go test`, `go vet`, Linux race test for media rooms'
             echo
             echo '**Runtime:** start the executable with working directory set to your existing Backend directory containing `config/config.yaml` and `data/`. Keep the Media Gateway executable and its config separate. No configuration, database, secrets or Gateway binaries are bundled.'
             echo
             echo '### SHA-256'
             echo '```text'
-            cat downloaded/windows/*.sha256
             cat downloaded/linux/*.sha256
             echo '```'
           } > release_notes.md
@@ -239,7 +164,6 @@ jobs:
           make_latest: false
           fail_on_unmatched_files: true
           files: |
-            release-assets/HomeCloudBackend-windows-amd64.exe
             release-assets/HomeCloudBackend-linux-amd64
 
       - name: Show published release
