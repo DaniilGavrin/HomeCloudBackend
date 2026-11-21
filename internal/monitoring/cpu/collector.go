@@ -65,6 +65,10 @@ type SystemCollector struct{}
 
 func NewSystemCollector() *SystemCollector { return &SystemCollector{} }
 
+func (c *SystemCollector) ReadFrequency(ctx context.Context) ([]MetricItem, error) {
+	return readLinuxFrequency(ctx, defaultSysfsCPUPath)
+}
+
 // Read samples per-logical-CPU counters once and derives the aggregate from the
 // same sample, keeping aggregate and per-core values temporally consistent.
 func (c *SystemCollector) Read(ctx context.Context) (Snapshot, error) {
@@ -261,6 +265,41 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 		}
 		return coreUserItems(snapshot.Cores, time.Now().UTC()), nil
 	})
+	registry.MustRegister(MetricTopologyCommand, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+		items, err := readLinuxTopology(ctx, defaultSysfsCPUPath)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		for i := range items {
+			items[i].ObservedAt = now
+		}
+		return items, nil
+	})
+
+	registerFrequencyCommand := func(metricID string) {
+		registry.MustRegister(metricID, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+			items, err := readLinuxFrequency(ctx, defaultSysfsCPUPath)
+			if err != nil {
+				return nil, err
+			}
+			now := time.Now().UTC().Format(time.RFC3339Nano)
+			filtered := make([]MetricItem, 0)
+			for _, item := range items {
+				if item.MetricID == metricID {
+					item.ObservedAt = now
+					filtered = append(filtered, item)
+				}
+			}
+			return filtered, nil
+		})
+	}
+	registerFrequencyCommand(MetricFrequencyCurrent)
+	registerFrequencyCommand(MetricFrequencyMin)
+	registerFrequencyCommand(MetricFrequencyMax)
+	registerFrequencyCommand(MetricFrequencyBase)
+	registerFrequencyCommand(MetricFrequencyGovernor)
+
 	registry.MustRegister(MetricCoreTotalUsage, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
 		window := DefaultWindow
 		if len(msg.Data) > 0 {

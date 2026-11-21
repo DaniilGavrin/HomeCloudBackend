@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -60,7 +61,9 @@ func validTarget(target string) bool {
 	switch target {
 	case Target, MetricTotalUsage, MetricUser, MetricSystem, MetricNice, MetricIdle,
 		MetricIOWait, MetricIRQ, MetricSoftIRQ, MetricSteal, MetricGuest, MetricGuestNice,
-		MetricCoreTotalUsage, MetricCoreUser:
+		MetricCoreTotalUsage, MetricCoreUser, MetricFrequencyTarget,
+		MetricFrequencyCurrent, MetricFrequencyMin, MetricFrequencyMax,
+		MetricFrequencyBase, MetricFrequencyGovernor:
 		return true
 	default:
 		return false
@@ -180,6 +183,76 @@ func (m *Manager) hasSubscribers() bool {
 	return len(m.subs) > 0
 }
 
+func isFrequencyTarget(target string) bool {
+	return target == MetricFrequencyTarget || strings.HasPrefix(target, MetricFrequencyTarget+".")
+}
+
+func (m *Manager) hasCPUSubscribers() bool {
+	for _, sub := range m.snapshot() {
+		if sub.target == Target || !isFrequencyTarget(sub.target) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Manager) hasFrequencySubscribers() bool {
+	for _, sub := range m.snapshot() {
+		if sub.target == Target || isFrequencyTarget(sub.target) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Manager) publishFrequency(ctx context.Context) {
+	if !m.hasFrequencySubscribers() {
+		return
+	}
+	reader, ok := m.collector.(interface {
+		ReadFrequency(context.Context) ([]MetricItem, error)
+	})
+	if !ok {
+		m.publishFrequencyError(ctx, errors.New("CPU frequency provider is unavailable"))
+		return
+	}
+	items, err := reader.ReadFrequency(ctx)
+	if err != nil {
+		m.publishFrequencyError(ctx, err)
+		return
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	for i := range items {
+		items[i].ObservedAt = now
+	}
+	m.publish(ctx, items)
+}
+
+func (m *Manager) publishFrequencyError(ctx context.Context, cause error) {
+	for _, sub := range m.snapshot() {
+		if sub.target != Target && !isFrequencyTarget(sub.target) {
+			continue
+		}
+		nodeID := ""
+		if m.nodeID != nil {
+			nodeID = m.nodeID()
+		}
+		deliveryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		_ = sub.deliver(deliveryCtx, commands.Outbound{
+			V: 1, Type: "subscription.error", NodeID: nodeID,
+			Payload: map[string]any{
+				"subscription_id": sub.id,
+				"target": sub.target,
+				"error": map[string]any{
+					"code": "METRIC_SOURCE_UNAVAILABLE", "category": "source",
+					"retryable": true, "message": cause.Error(),
+				},
+			},
+		})
+		cancel()
+	}
+}
+
 func (m *Manager) snapshot() []subscription {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -206,32 +279,44 @@ func (m *Manager) run(ctx context.Context) {
 				previous = nil
 				continue
 			}
-			current, err := m.collector.Read(ctx)
-			if err != nil {
+			if m.hasCPUSubscribers() {
+				current, err := m.collector.Read(ctx)
+				if err != nil {
+					previous = nil
+					m.publishCollectionError(ctx, err, &lastCollectionFailed)
+				} else {
+					lastCollectionFailed = false
+					previous = &current
+					m.publish(ctx, itemsFor(current, nil, time.Now().UTC()))
+				}
+			} else {
 				previous = nil
-				m.publishCollectionError(ctx, err, &lastCollectionFailed)
-				continue
+				lastCollectionFailed = false
 			}
-			lastCollectionFailed = false
-			previous = &current
-			m.publish(ctx, itemsFor(current, nil, time.Now().UTC()))
+			m.publishFrequency(ctx)
 		case <-ticker.C:
 			if !m.hasSubscribers() {
 				previous = nil
 				lastCollectionFailed = false
 				continue
 			}
-			current, err := m.collector.Read(ctx)
-			if err != nil {
+			if m.hasCPUSubscribers() {
+				current, err := m.collector.Read(ctx)
+				if err != nil {
+					previous = nil
+					m.publishCollectionError(ctx, err, &lastCollectionFailed)
+				} else {
+					lastCollectionFailed = false
+					now := time.Now().UTC()
+					items := itemsFor(current, previous, now)
+					previous = &current
+					m.publish(ctx, items)
+				}
+			} else {
 				previous = nil
-				m.publishCollectionError(ctx, err, &lastCollectionFailed)
-				continue
+				lastCollectionFailed = false
 			}
-			lastCollectionFailed = false
-			now := time.Now().UTC()
-			items := itemsFor(current, previous, now)
-			previous = &current
-			m.publish(ctx, items)
+			m.publishFrequency(ctx)
 		}
 	}
 }
@@ -278,9 +363,13 @@ func (m *Manager) publish(ctx context.Context, items []MetricItem) {
 	for _, sub := range m.snapshot() {
 		filtered := items
 		if sub.target != Target {
-			filtered = make([]MetricItem, 0, 1)
+			filtered = make([]MetricItem, 0, len(items))
 			for _, item := range items {
-				if item.MetricID == sub.target {
+				if sub.target == MetricFrequencyTarget {
+					if strings.HasPrefix(item.MetricID, MetricFrequencyTarget+".") {
+						filtered = append(filtered, item)
+					}
+				} else if item.MetricID == sub.target {
 					filtered = append(filtered, item)
 				}
 			}
@@ -307,6 +396,9 @@ func (m *Manager) publishCollectionError(ctx context.Context, cause error, alrea
 	}
 	*alreadyFailed = true
 	for _, sub := range m.snapshot() {
+		if isFrequencyTarget(sub.target) {
+			continue
+		}
 		nodeID := ""
 		if m.nodeID != nil {
 			nodeID = m.nodeID()
