@@ -36,6 +36,7 @@ func TestReadLinuxFrequencyPolicies(t *testing.T) {
 	root := t.TempDir()
 	policy := filepath.Join(root, "cpufreq", "policy0")
 	writeSysfsTestFile(t, filepath.Join(policy, "scaling_cur_freq"), "1800000\n")
+	writeSysfsTestFile(t, filepath.Join(policy, "affected_cpus"), "0")
 	writeSysfsTestFile(t, filepath.Join(policy, "cpuinfo_min_freq"), "800000\n")
 	writeSysfsTestFile(t, filepath.Join(policy, "cpuinfo_max_freq"), "3200000\n")
 	writeSysfsTestFile(t, filepath.Join(policy, "base_frequency"), "2400000\n")
@@ -45,14 +46,14 @@ func TestReadLinuxFrequencyPolicies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 5 {
-		t.Fatalf("frequency items = %d, want 5: %#v", len(items), items)
+	if len(items) != 6 {
+		t.Fatalf("frequency items = %d, want 6 including per-core frequency: %#v", len(items), items)
 	}
 	expected := map[string]any{
-		MetricFrequencyCurrent: int64(1800000),
-		MetricFrequencyMin: int64(800000),
-		MetricFrequencyMax: int64(3200000),
-		MetricFrequencyBase: int64(2400000),
+		MetricFrequencyCurrent: int64(1800000000),
+		MetricFrequencyMin: int64(800000000),
+		MetricFrequencyMax: int64(3200000000),
+		MetricFrequencyBase: int64(2400000000),
 		MetricFrequencyGovernor: "performance",
 	}
 	for metricID, value := range expected {
@@ -61,9 +62,13 @@ func TestReadLinuxFrequencyPolicies(t *testing.T) {
 			t.Errorf("missing %s for policy0", metricID)
 			continue
 		}
-		if item.Value != value {
-			t.Errorf("%s value = %#v, want %#v", metricID, item.Value, value)
+		if item.Value != value || item.Unit != "Hz" {
+			t.Errorf("%s value/unit = %#v/%q, want %#v/Hz", metricID, item.Value, item.Unit, value)
 		}
+	}
+	coreFrequency, ok := findMetric(items, MetricCoreFrequency, "cpu0")
+	if !ok || coreFrequency.Value != int64(1800000000) || coreFrequency.Unit != "Hz" {
+		t.Fatalf("per-core frequency = %#v, found=%v; want 1800000000 Hz", coreFrequency, ok)
 	}
 }
 
@@ -79,8 +84,8 @@ func TestReadLinuxFrequencyUsesBaseFrequencyFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	item, ok := findMetric(items, MetricFrequencyBase, "policy2")
-	if !ok || item.Value != int64(2100000) {
-		t.Fatalf("base frequency = %#v, found=%v; want 2100000 kHz", item, ok)
+	if !ok || item.Value != int64(2100000000) {
+		t.Fatalf("base frequency = %#v, found=%v; want 2100000000 Hz", item, ok)
 	}
 }
 
