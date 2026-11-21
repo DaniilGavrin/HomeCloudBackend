@@ -34,53 +34,65 @@ func (c *SystemCollector) ReadSystemCounters(ctx context.Context) ([]MetricItem,
 // readLinuxCStates reads cpuidle residency counters. Linux exports time in
 // microseconds; HomeCloud's canonical duration unit is nanoseconds.
 func readLinuxCStates(ctx context.Context, cpuSysfsPath string) ([]MetricItem, error) {
+	now := time.Now().UTC()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if runtime.GOOS != "linux" {
-		return nil, ErrMetricUnsupported
+		return []MetricItem{statusItem(MetricCStateTarget, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "platform.cpuidle", now)}, nil
 	}
 	pattern := filepath.Join(cpuSysfsPath, "cpu[0-9]*", "cpuidle", "state[0-9]*")
 	states, err := filepath.Glob(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("list CPU idle states: %w", err)
+		status, reason, code := classifySourceError(err)
+		return []MetricItem{statusItem(MetricCStateTarget, "", status, reason, code, "linux.sysfs.cpuidle", now)}, nil
 	}
 	sort.Strings(states)
+	if len(states) == 0 {
+		return []MetricItem{statusItem(MetricCStateTarget, "", StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.sysfs.cpuidle", now)}, nil
+	}
 	items := make([]MetricItem, 0, len(states))
-	now := time.Now().UTC().Format(time.RFC3339Nano)
 	for _, statePath := range states {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		name, err := readSysfsValue(filepath.Join(statePath, "name"))
-		if err != nil || strings.TrimSpace(name) == "" {
-			continue
-		}
-		timeText, err := readSysfsValue(filepath.Join(statePath, "time"))
-		if err != nil {
-			continue
-		}
-		microseconds, err := strconv.ParseUint(timeText, 10, 64)
-		if err != nil || microseconds > math.MaxInt64/uint64(time.Microsecond) {
-			continue
-		}
 		cpuDir := filepath.Dir(filepath.Dir(statePath))
 		cpuID := filepath.Base(cpuDir)
 		stateID := filepath.Base(statePath)
-		suffix := metricSlug(name)
-		if suffix == "" {
-			suffix = stateID
+		objectID := cpuID + "/" + stateID
+		name, nameErr := readSysfsValue(filepath.Join(statePath, "name"))
+		if nameErr != nil || strings.TrimSpace(name) == "" {
+			if nameErr == nil {
+				nameErr = errors.New("cpuidle state name is empty")
+			}
+			status, reason, code := classifySourceError(nameErr)
+			items = append(items, statusItem(MetricCStateTarget, objectID, status, reason, code, "linux.sysfs.cpuidle", now))
+			continue
+		}
+		metricID := MetricCStateTarget + "." + metricSlug(name)
+		if metricID == MetricCStateTarget+"." {
+			metricID = MetricCStateTarget + "." + stateID
+		}
+		timeText, readErr := readSysfsValue(filepath.Join(statePath, "time"))
+		if readErr != nil {
+			status, reason, code := classifySourceError(readErr)
+			if errors.Is(readErr, os.ErrNotExist) {
+				status, reason, code = StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED"
+			}
+			items = append(items, statusItem(metricID, objectID, status, reason, code, "linux.sysfs.cpuidle", now))
+			continue
+		}
+		microseconds, parseErr := strconv.ParseUint(timeText, 10, 64)
+		if parseErr != nil || microseconds > math.MaxInt64/uint64(time.Microsecond) {
+			items = append(items, statusItem(metricID, objectID, StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.sysfs.cpuidle", now))
+			continue
 		}
 		items = append(items, MetricItem{
-			MetricID: MetricCStateTarget + "." + suffix,
-			ObjectID: cpuID + "/" + stateID,
+			MetricID: metricID, ObjectID: objectID,
 			Value: int64(microseconds * uint64(time.Microsecond)),
-			Unit: "ns",
-			ObservedAt: now,
+			Unit: "ns", ObservedAt: now.Format(time.RFC3339Nano),
+			Status: StatusValid, SourceID: "linux.sysfs.cpuidle",
 		})
-	}
-	if len(items) == 0 {
-		return nil, ErrMetricUnsupported
 	}
 	return items, nil
 }
@@ -107,28 +119,26 @@ func metricSlug(value string) string {
 // exports them. Core-level counters remain scoped to each logical CPU; package
 // counters are emitted once per physical package because they are broadcast.
 func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem, error) {
+	now := time.Now().UTC()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if runtime.GOOS != "linux" {
-		return nil, ErrMetricUnsupported
+		return []MetricItem{statusItem(MetricThrottlingTarget, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "platform.cpu.throttling", now)}, nil
 	}
 	presentText, err := readSysfsValue(filepath.Join(cpuSysfsPath, "present"))
 	if err != nil {
-		return nil, fmt.Errorf("read present CPU list for throttling: %w", err)
+		status, reason, code := classifySourceError(err)
+		return []MetricItem{statusItem(MetricThrottlingTarget, "", status, reason, code, "linux.sysfs.thermal_throttle", now)}, nil
 	}
 	cpuIDs, err := parseCPUList(presentText)
 	if err != nil {
-		return nil, fmt.Errorf("parse present CPU list for throttling: %w", err)
+		return []MetricItem{statusItem(MetricThrottlingTarget, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.sysfs.thermal_throttle", now)}, nil
 	}
 	sort.Ints(cpuIDs)
 
-	seenPackageEvents := make(map[string]bool)
-	seenPackageDuration := make(map[string]bool)
-	seenPackagePowerEvents := make(map[string]bool)
-	items := make([]MetricItem, 0, len(cpuIDs)*5)
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-
+	seenPackages := make(map[string]bool)
+	items := make([]MetricItem, 0, len(cpuIDs)*6)
 	for _, id := range cpuIDs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -143,65 +153,63 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 			packageID = strconv.Itoa(packageNumber)
 		}
 		throttlePath := filepath.Join(cpuPath, "thermal_throttle")
-
-		// The kernel keeps core-level throttle/power counters per logical CPU.
-		// Preserve each CPU's own counters instead of collapsing SMT siblings.
-		appendThrottleCounter(&items, throttlePath, "core_throttle_count",
-			MetricThrottleThermalCoreEvents, cpuName, "count", 1, now)
-		appendThrottleCounter(&items, throttlePath, "core_throttle_total_time_ms",
-			MetricThrottleThermalCoreDuration, cpuName, "ns", uint64(time.Millisecond), now)
-		appendThrottleCounter(&items, throttlePath, "core_power_limit_count",
-			MetricThrottlePowerCoreEvents, cpuName, "count", 1, now)
-
-		// Package-level counters are broadcast to every CPU in the package.
-		// Emit one copy per package to avoid multiplying the same counter.
-		if packageKnown {
-			packageObjectID := "package" + packageID
-			if !seenPackageEvents[packageID] {
-				appendThrottleCounter(&items, throttlePath, "package_throttle_count",
-					MetricThrottleThermalPackageEvents, packageObjectID, "count", 1, now)
-				seenPackageEvents[packageID] = hasThrottleObject(items, MetricThrottleThermalPackageEvents, packageObjectID)
+		if _, statErr := os.Stat(throttlePath); statErr != nil {
+			status, reason, code := classifySourceError(statErr)
+			if errors.Is(statErr, os.ErrNotExist) {
+				status, reason, code = StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED"
 			}
-			if !seenPackageDuration[packageID] {
-				appendThrottleCounter(&items, throttlePath, "package_throttle_total_time_ms",
-					MetricThrottleThermalPackageDuration, packageObjectID, "ns", uint64(time.Millisecond), now)
-				seenPackageDuration[packageID] = hasThrottleObject(items, MetricThrottleThermalPackageDuration, packageObjectID)
-			}
-			if !seenPackagePowerEvents[packageID] {
-				appendThrottleCounter(&items, throttlePath, "package_power_limit_count",
-					MetricThrottlePowerPackageEvents, packageObjectID, "count", 1, now)
-				seenPackagePowerEvents[packageID] = hasThrottleObject(items, MetricThrottlePowerPackageEvents, packageObjectID)
-			}
+			items = append(items,
+				statusItem(MetricThrottleThermalCoreEvents, cpuName, status, reason, code, "linux.sysfs.thermal_throttle", now),
+				statusItem(MetricThrottleThermalCoreDuration, cpuName, status, reason, code, "linux.sysfs.thermal_throttle", now),
+				statusItem(MetricThrottlePowerCoreEvents, cpuName, status, reason, code, "linux.sysfs.thermal_throttle", now),
+			)
+			continue
 		}
-	}
-	if len(items) == 0 {
-		return nil, ErrMetricUnsupported
+
+		items = append(items,
+			appendThrottleCounter(throttlePath, "core_throttle_count", MetricThrottleThermalCoreEvents, cpuName, "count", 1, now),
+			appendThrottleCounter(throttlePath, "core_throttle_total_time_ms", MetricThrottleThermalCoreDuration, cpuName, "ns", uint64(time.Millisecond), now),
+			appendThrottleCounter(throttlePath, "core_power_limit_count", MetricThrottlePowerCoreEvents, cpuName, "count", 1, now),
+		)
+
+		if packageKnown && !seenPackages[packageID] {
+			packageObjectID := "package" + packageID
+			items = append(items,
+				appendThrottleCounter(throttlePath, "package_throttle_count", MetricThrottleThermalPackageEvents, packageObjectID, "count", 1, now),
+				appendThrottleCounter(throttlePath, "package_throttle_total_time_ms", MetricThrottleThermalPackageDuration, packageObjectID, "ns", uint64(time.Millisecond), now),
+				appendThrottleCounter(throttlePath, "package_power_limit_count", MetricThrottlePowerPackageEvents, packageObjectID, "count", 1, now),
+			)
+			seenPackages[packageID] = true
+		}
 	}
 	return items, nil
 }
 
-func appendThrottleCounter(items *[]MetricItem, dir, filename, metricID, objectID, unit string, scale uint64, observedAt string) {
+func appendThrottleCounter(dir, filename, metricID, objectID, unit string, scale uint64, observedAt time.Time) MetricItem {
+	sourceID := "linux.sysfs.thermal_throttle"
 	valueText, err := readSysfsValue(filepath.Join(dir, filename))
 	if err != nil {
-		return
+		status, reason, code := classifySourceError(err)
+		if errors.Is(err, os.ErrNotExist) {
+			status, reason, code = StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED"
+		}
+		return statusItem(metricID, objectID, status, reason, code, sourceID, observedAt)
 	}
 	value, err := strconv.ParseUint(valueText, 10, 64)
 	if err != nil {
-		return
+		return statusItem(metricID, objectID, StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", sourceID, observedAt)
 	}
-	var normalized any
-	if unit == "count" {
-		normalized = value
-	} else {
+	var normalized any = value
+	if unit != "count" {
 		if scale == 0 || value > math.MaxInt64/scale {
-			return
+			return statusItem(metricID, objectID, StatusInvalid, "overflow", "SOURCE_INVALID_DATA", sourceID, observedAt)
 		}
 		normalized = int64(value * scale)
 	}
-	*items = append(*items, MetricItem{
-		MetricID: metricID, ObjectID: objectID,
-		Value: normalized, Unit: unit, ObservedAt: observedAt,
-	})
+	return MetricItem{
+		MetricID: metricID, ObjectID: objectID, Value: normalized, Unit: unit,
+		ObservedAt: observedAt.Format(time.RFC3339Nano), Status: StatusValid, SourceID: sourceID,
+	}
 }
 
 func hasThrottleObject(items []MetricItem, metricID, objectID string) bool {
