@@ -526,9 +526,9 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 		if err != nil {
 			return nil, err
 		}
-		filtered := make([]MetricItem, 0, 2)
+		filtered := make([]MetricItem, 0, 3)
 		for _, item := range items {
-			if item.MetricID == MetricProcessesRunning || item.MetricID == MetricProcessesBlocked {
+			if item.MetricID == MetricForks || item.MetricID == MetricProcessesRunning || item.MetricID == MetricProcessesBlocked {
 				filtered = append(filtered, item)
 			}
 		}
