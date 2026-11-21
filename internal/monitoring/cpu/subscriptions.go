@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -60,7 +61,9 @@ func validTarget(target string) bool {
 	switch target {
 	case Target, MetricTotalUsage, MetricUser, MetricSystem, MetricNice, MetricIdle,
 		MetricIOWait, MetricIRQ, MetricSoftIRQ, MetricSteal, MetricGuest, MetricGuestNice,
-		MetricCoreTotalUsage, MetricCoreUser:
+		MetricCoreTotalUsage, MetricCoreUser, MetricFrequencyTarget,
+		MetricFrequencyCurrent, MetricFrequencyMin, MetricFrequencyMax,
+		MetricFrequencyBase, MetricFrequencyGovernor:
 		return true
 	default:
 		return false
@@ -268,6 +271,10 @@ func itemsFor(current Snapshot, previous *Snapshot, observedAt time.Time) []Metr
 	if previous != nil {
 		items = append(items, coreTotalUsageItems(previous.Cores, current.Cores, observedAt)...)
 	}
+	for _, item := range current.Frequency {
+		item.ObservedAt = timestamp
+		items = append(items, item)
+	}
 	return items
 }
 
@@ -278,9 +285,13 @@ func (m *Manager) publish(ctx context.Context, items []MetricItem) {
 	for _, sub := range m.snapshot() {
 		filtered := items
 		if sub.target != Target {
-			filtered = make([]MetricItem, 0, 1)
+			filtered = make([]MetricItem, 0, len(items))
 			for _, item := range items {
-				if item.MetricID == sub.target {
+				if sub.target == MetricFrequencyTarget {
+					if strings.HasPrefix(item.MetricID, MetricFrequencyTarget+".") {
+						filtered = append(filtered, item)
+					}
+				} else if item.MetricID == sub.target {
 					filtered = append(filtered, item)
 				}
 			}
