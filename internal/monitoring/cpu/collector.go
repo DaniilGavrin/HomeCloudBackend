@@ -308,19 +308,137 @@ type metricResult struct {
 	WindowEnd   string `json:"window_end,omitempty"`
 }
 
+type intervalCommandParams struct {
+	SampleInterval json.RawMessage `json:"sample_interval"`
+	WindowMS       json.RawMessage `json:"window_ms"`
+}
+
+type coreUsageCommandParams struct {
+	SampleInterval json.RawMessage `json:"sample_interval"`
+	WindowMS       json.RawMessage `json:"window_ms"`
+	CPUId          *int64          `json:"cpu_id"`
+	CoreID         *int64          `json:"core_id"`
+}
+
+func decodeStrictParams(data json.RawMessage, destination any, allowedFields ...string) error {
+	if len(data) == 0 {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil || fields == nil {
+		return commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "command parameters must be a JSON object", false, err)
+	}
+	allowed := make(map[string]struct{}, len(allowedFields))
+	for _, field := range allowedFields {
+		allowed[field] = struct{}{}
+	}
+	for field := range fields {
+		if _, ok := allowed[field]; !ok {
+			return commands.NewClassifiedError("VALIDATION_UNKNOWN_PARAMETER", "validation", "command contains an unknown parameter", false, nil)
+		}
+	}
+	if destination != nil {
+		if err := json.Unmarshal(data, destination); err != nil {
+			return commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "command parameter has an invalid type or format", false, err)
+		}
+	}
+	return nil
+}
+
+func parseIntervalFields(sampleInterval, windowMS json.RawMessage) (time.Duration, error) {
+	if len(sampleInterval) > 0 && len(windowMS) > 0 {
+		return 0, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "sample_interval and window_ms cannot be used together", false, nil)
+	}
+	if len(sampleInterval) == 0 && len(windowMS) == 0 {
+		return DefaultWindow, nil
+	}
+	var duration time.Duration
+	if len(sampleInterval) > 0 {
+		var textValue string
+		if json.Unmarshal(sampleInterval, &textValue) == nil {
+			parsed, err := time.ParseDuration(textValue)
+			if err != nil {
+				return 0, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "sample_interval must be a duration string or milliseconds", false, err)
+			}
+			duration = parsed
+		} else {
+			var milliseconds int64
+			if err := json.Unmarshal(sampleInterval, &milliseconds); err != nil {
+				return 0, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "sample_interval must be a duration string or milliseconds", false, err)
+			}
+			if milliseconds <= 0 || milliseconds > maxWindow.Milliseconds() {
+				return 0, commands.NewClassifiedError("VALIDATION_OUT_OF_RANGE", "validation", "sample_interval is outside the supported range", false, nil)
+			}
+			duration = time.Duration(milliseconds) * time.Millisecond
+		}
+	} else {
+		var milliseconds int64
+		if err := json.Unmarshal(windowMS, &milliseconds); err != nil {
+			return 0, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "window_ms must be an integer", false, err)
+		}
+		if milliseconds <= 0 || milliseconds > maxWindow.Milliseconds() {
+			return 0, commands.NewClassifiedError("VALIDATION_OUT_OF_RANGE", "validation", "window_ms is outside the supported range", false, nil)
+		}
+		duration = time.Duration(milliseconds) * time.Millisecond
+	}
+	if err := validateWindow(duration); err != nil {
+		return 0, err
+	}
+	return duration, nil
+}
+
+func filterCoreUsageItems(ctx context.Context, items []MetricItem, cpuID, coreID *int64) ([]MetricItem, error) {
+	if cpuID == nil && coreID == nil {
+		return items, nil
+	}
+	selected := make(map[string]bool)
+	requestedObject := ""
+	if cpuID != nil {
+		requestedObject = fmt.Sprintf("cpu%d", *cpuID)
+		selected[requestedObject] = true
+	}
+	if coreID != nil {
+		requestedObject = fmt.Sprintf("core%d", *coreID)
+		topology, err := readLinuxTopology(ctx, defaultSysfsCPUPath)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range topology {
+			if item.MetricID != MetricTopologyCoreID || item.Status != StatusValid {
+				continue
+			}
+			value, ok := item.Value.(int)
+			if !ok || int64(value) != *coreID {
+				continue
+			}
+			selected[item.ObjectID] = true
+		}
+	}
+	filtered := make([]MetricItem, 0)
+	for _, item := range items {
+		if selected[item.ObjectID] {
+			filtered = append(filtered, item)
+		}
+	}
+	if len(filtered) > 0 {
+		return filtered, nil
+	}
+	now := time.Now().UTC()
+	return []MetricItem{
+		statusItem(MetricCoreTotalUsage, requestedObject, StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", now),
+		statusItem(MetricCoreUsage, requestedObject, StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", now),
+	}, nil
+}
+
 func RegisterCommands(registry *commands.Registry, collector Collector) {
 	registry.MustRegister(MetricTotalUsage, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
-		window := DefaultWindow
-		if len(msg.Data) > 0 {
-			var params struct {
-				WindowMS int64 `json:"window_ms"`
-			}
-			if err := json.Unmarshal(msg.Data, &params); err != nil {
-				return nil, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "invalid command parameters", false, err)
-			}
-			if params.WindowMS != 0 {
-				window = time.Duration(params.WindowMS) * time.Millisecond
-			}
+		var params intervalCommandParams
+		if err := decodeStrictParams(msg.Data, &params, "sample_interval", "window_ms"); err != nil {
+			return nil, err
+		}
+		window, err := parseIntervalFields(params.SampleInterval, params.WindowMS)
+		if err != nil {
+			return nil, err
 		}
 		windowStart := time.Now().UTC()
 		value, err := collector.TotalUsage(ctx, window)
@@ -437,19 +555,18 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 	registerFrequencyCommand(MetricCoreFrequency)
 
 	readCoreUsage := func(ctx context.Context, msg commands.Inbound) ([]MetricItem, error) {
-		window := DefaultWindow
-		if len(msg.Data) > 0 {
-			var params struct {
-				WindowMS int64 `json:"window_ms"`
-			}
-			if err := json.Unmarshal(msg.Data, &params); err != nil {
-				return nil, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "invalid command parameters", false, err)
-			}
-			if params.WindowMS != 0 {
-				window = time.Duration(params.WindowMS) * time.Millisecond
-			}
+		var params coreUsageCommandParams
+		if err := decodeStrictParams(msg.Data, &params, "sample_interval", "window_ms", "cpu_id", "core_id"); err != nil {
+			return nil, err
 		}
-		if err := validateWindow(window); err != nil {
+		if params.CPUId != nil && *params.CPUId < 0 || params.CoreID != nil && *params.CoreID < 0 {
+			return nil, commands.NewClassifiedError("VALIDATION_OUT_OF_RANGE", "validation", "cpu_id and core_id must be non-negative", false, nil)
+		}
+		if params.CPUId != nil && params.CoreID != nil {
+			return nil, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "cpu_id and core_id cannot be used together", false, nil)
+		}
+		window, err := parseIntervalFields(params.SampleInterval, params.WindowMS)
+		if err != nil {
 			return nil, err
 		}
 		before, err := collector.Read(ctx)
@@ -468,9 +585,12 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 			items[i].WindowMS = window.Milliseconds()
 		}
 		if len(items) == 0 {
-			return []MetricItem{statusItem(MetricCoreTotalUsage, "", StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", time.Now().UTC())}, nil
+			items = []MetricItem{
+				statusItem(MetricCoreTotalUsage, "", StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", time.Now().UTC()),
+				statusItem(MetricCoreUsage, "", StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", time.Now().UTC()),
+			}
 		}
-		return items, nil
+		return filterCoreUsageItems(ctx, items, params.CPUId, params.CoreID)
 	}
 	registry.MustRegister(MetricCoreTotalUsage, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
 		return readCoreUsage(ctx, msg)
