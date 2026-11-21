@@ -104,8 +104,8 @@ func metricSlug(value string) string {
 }
 
 // readLinuxThrottling exposes Intel thermal_throttle counters where the kernel
-// exports them. Per-core counters are deduplicated across SMT siblings; package
-// counters are emitted once per physical package.
+// exports them. Core-level counters remain scoped to each logical CPU; package
+// counters are emitted once per physical package because they are broadcast.
 func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
