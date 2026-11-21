@@ -83,6 +83,7 @@ func (r *Registry) Dispatch(ctx context.Context, msg Inbound, client ClientConte
 	if r == nil {
 		response.Type = "error"
 		response.Error = "command registry is unavailable"
+		response.Error = "command execution failed"
 		response.ErrorCode = "PROVIDER_FAILURE"
 		response.ErrorCategory = "execution"
 		return response
@@ -119,6 +120,7 @@ func (r *Registry) Dispatch(ctx context.Context, msg Inbound, client ClientConte
 func setOutboundErrorMetadata(response *Outbound, err error) {
 	var classified *ClassifiedError
 	if errors.As(err, &classified) {
+		response.Error = classified.Error()
 		response.ErrorCode = classified.Code
 		response.ErrorCategory = classified.Category
 		response.Retryable = classified.Retryable
@@ -126,10 +128,12 @@ func setOutboundErrorMetadata(response *Outbound, err error) {
 	}
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
+		response.Error = "request timed out"
 		response.ErrorCode = "REQUEST_TIMEOUT"
 		response.ErrorCategory = "timeout"
 		response.Retryable = true
 	case errors.Is(err, context.Canceled):
+		response.Error = "request cancelled"
 		response.ErrorCode = "REQUEST_CANCELLED"
 		response.ErrorCategory = "timeout"
 		response.Retryable = false
