@@ -52,8 +52,11 @@ type CoreCounters struct {
 }
 
 type Snapshot struct {
-	Counters Counters
-	Cores    []CoreCounters
+	Counters        Counters
+	Cores           []CoreCounters
+	CollectedAt     time.Time
+	AggregateStatus string
+	Issues          []MetricItem
 }
 
 type Collector interface {
@@ -69,51 +72,100 @@ func (c *SystemCollector) ReadFrequency(ctx context.Context) ([]MetricItem, erro
 	return readLinuxFrequency(ctx, defaultSysfsCPUPath)
 }
 
-// Read samples per-logical-CPU counters once and derives the aggregate from the
-// same sample, keeping aggregate and per-core values temporally consistent.
+// Read samples aggregate and per-logical-CPU counters independently. A failure
+// in one source is represented as a metric-level quality item and must not
+// discard valid data from the other source.
 func (c *SystemCollector) Read(ctx context.Context) (Snapshot, error) {
-	aggregateStats, err := cpu.TimesWithContext(ctx, false)
-	if err != nil {
-		return Snapshot{}, fmt.Errorf("read aggregate CPU counters: %w", err)
+	now := time.Now().UTC()
+	result := Snapshot{
+		CollectedAt: now,
+		AggregateStatus: StatusUnknown,
+		Cores: make([]CoreCounters, 0),
 	}
-	if len(aggregateStats) == 0 {
-		return Snapshot{}, errors.New("aggregate CPU counters are unavailable")
+	aggregateStats, aggregateErr := cpu.TimesWithContext(ctx, false)
+	if ctx.Err() != nil {
+		return Snapshot{}, ctx.Err()
 	}
-	perCPUStats, err := cpu.TimesWithContext(ctx, true)
-	if err != nil {
-		return Snapshot{}, fmt.Errorf("read per-CPU counters: %w", err)
-	}
-	if len(perCPUStats) == 0 {
-		return Snapshot{}, errors.New("per-CPU counters are unavailable")
+	if aggregateErr == nil && len(aggregateStats) > 0 {
+		aggregate := countersFromTimes(aggregateStats[0])
+		if validationErr := validateCounters(aggregate); validationErr != nil {
+			result.AggregateStatus = StatusInvalid
+			for _, metricID := range aggregateMetricIDs() {
+				result.Issues = append(result.Issues, statusItem(metricID, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", now))
+			}
+		} else {
+			result.Counters = aggregate
+			result.AggregateStatus = StatusValid
+		}
+	} else {
+		if aggregateErr == nil {
+			aggregateErr = errors.New("aggregate CPU counters are unavailable")
+		}
+		status, reason, code := classifySourceError(aggregateErr)
+		result.AggregateStatus = status
+		for _, metricID := range aggregateMetricIDs() {
+			result.Issues = append(result.Issues, statusItem(metricID, "", status, reason, code, "gopsutil.cpu.times", now))
+		}
 	}
 
-	aggregate := countersFromTimes(aggregateStats[0])
-	if err := validateCounters(aggregate); err != nil {
-		return Snapshot{}, fmt.Errorf("invalid aggregate CPU counters: %w", err)
+	perCPUStats, perCPUErr := cpu.TimesWithContext(ctx, true)
+	if ctx.Err() != nil {
+		return Snapshot{}, ctx.Err()
 	}
-	result := Snapshot{
-		Counters: aggregate,
-		Cores: make([]CoreCounters, 0, len(perCPUStats)),
+	if perCPUErr != nil || len(perCPUStats) == 0 {
+		if perCPUErr == nil {
+			perCPUErr = errors.New("per-CPU counters are unavailable")
+		}
+		status, reason, code := classifySourceError(perCPUErr)
+		result.Issues = append(result.Issues,
+			statusItem(MetricCoreUser, "", status, reason, code, "gopsutil.cpu.times", now),
+			statusItem(MetricCoreTotalUsage, "", status, reason, code, "gopsutil.cpu.times", now),
+		)
+		return result, nil
 	}
+
 	seen := make(map[string]struct{}, len(perCPUStats))
 	for _, stat := range perCPUStats {
 		if stat.CPU == "" || stat.CPU == "cpu-total" {
 			continue
 		}
-		if _, exists := seen[stat.CPU]; exists {
-			return Snapshot{}, fmt.Errorf("duplicate logical CPU identifier %q", stat.CPU)
+		objectID := stat.CPU
+		if _, exists := seen[objectID]; exists {
+			result.Issues = append(result.Issues,
+				statusItem(MetricCoreUser, objectID, StatusInvalid, "duplicate_object_id", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", now),
+				statusItem(MetricCoreTotalUsage, objectID, StatusInvalid, "duplicate_object_id", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", now),
+			)
+			continue
 		}
-		seen[stat.CPU] = struct{}{}
+		seen[objectID] = struct{}{}
 		counters := countersFromTimes(stat)
-		if err := validateCounters(counters); err != nil {
-			return Snapshot{}, fmt.Errorf("invalid counters for logical CPU %q: %w", stat.CPU, err)
+		if validationErr := validateCounters(counters); validationErr != nil {
+			result.Issues = append(result.Issues,
+				statusItem(MetricCoreUser, objectID, StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", now),
+				statusItem(MetricCoreTotalUsage, objectID, StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", now),
+			)
+			continue
 		}
-		result.Cores = append(result.Cores, CoreCounters{ObjectID: stat.CPU, Counters: counters})
+		result.Cores = append(result.Cores, CoreCounters{ObjectID: objectID, Counters: counters})
 	}
-	if len(result.Cores) == 0 {
-		return Snapshot{}, errors.New("per-CPU counters are unavailable")
+	if len(result.Cores) == 0 && len(result.Issues) == 0 {
+		result.Issues = append(result.Issues,
+			statusItem(MetricCoreUser, "", StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", now),
+			statusItem(MetricCoreTotalUsage, "", StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", now),
+		)
 	}
 	return result, nil
+}
+
+func aggregateMetricIDs() []string {
+	return []string{
+		MetricTotalUsage, MetricUser, MetricSystem, MetricNice, MetricIdle,
+		MetricIOWait, MetricIRQ, MetricSoftIRQ, MetricSteal, MetricGuest, MetricGuestNice,
+	}
+}
+
+func aggregateAvailable(snapshot Snapshot) bool {
+	return snapshot.AggregateStatus == "" || snapshot.AggregateStatus == StatusValid
 }
 
 func countersFromTimes(stat cpu.TimesStat) Counters {
@@ -157,12 +209,18 @@ func (c *SystemCollector) TotalUsage(ctx context.Context, window time.Duration) 
 	if err != nil {
 		return 0, err
 	}
+	if !aggregateAvailable(before) {
+		return 0, errors.New("aggregate CPU counters are unavailable")
+	}
 	if err := waitWindow(ctx, window); err != nil {
 		return 0, err
 	}
 	after, err := c.Read(ctx)
 	if err != nil {
 		return 0, err
+	}
+	if !aggregateAvailable(after) {
+		return 0, errors.New("aggregate CPU counters are unavailable")
 	}
 	value, ok := CalculateTotalUsage(before.Counters, after.Counters)
 	if !ok {
@@ -201,7 +259,10 @@ func CalculateTotalUsage(previous, current Counters) (float64, bool) {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
 		return 0, false
 	}
-	return math.Max(0, math.Min(100, value)), true
+	if value < 0 || value > 100 {
+		return 0, false
+	}
+	return value, true
 }
 
 func counterNanoseconds(seconds float64) int64 {
@@ -212,9 +273,16 @@ func counterNanoseconds(seconds float64) int64 {
 }
 
 type metricResult struct {
-	Value      any    `json:"value"`
-	Unit       string `json:"unit"`
-	ObservedAt string `json:"observed_at"`
+	Value       any    `json:"value"`
+	Unit        string `json:"unit"`
+	ObservedAt  string `json:"observed_at"`
+	Status      string `json:"status,omitempty"`
+	Reason      string `json:"reason,omitempty"`
+	ErrorCode   string `json:"error_code,omitempty"`
+	SourceID    string `json:"source_id,omitempty"`
+	WindowMS    int64  `json:"window_ms,omitempty"`
+	WindowStart string `json:"window_start,omitempty"`
+	WindowEnd   string `json:"window_end,omitempty"`
 }
 
 func RegisterCommands(registry *commands.Registry, collector Collector) {
@@ -231,11 +299,17 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 				window = time.Duration(params.WindowMS) * time.Millisecond
 			}
 		}
+		windowStart := time.Now().UTC()
 		value, err := collector.TotalUsage(ctx, window)
 		if err != nil {
 			return nil, err
 		}
-		return metricResult{Value: value, Unit: "percent", ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
+		windowEnd := time.Now().UTC()
+		return metricResult{
+			Value: value, Unit: "percent", ObservedAt: windowEnd.Format(time.RFC3339Nano),
+			Status: StatusValid, SourceID: "gopsutil.cpu.times", WindowMS: window.Milliseconds(),
+			WindowStart: windowStart.Format(time.RFC3339Nano), WindowEnd: windowEnd.Format(time.RFC3339Nano),
+		}, nil
 	})
 
 	registerCounter := func(commandID string, read func(Counters) float64) {
