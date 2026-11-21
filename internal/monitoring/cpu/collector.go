@@ -510,12 +510,12 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 	}
 	readPerf := func(ctx context.Context) ([]MetricItem, error) {
 		reader, ok := collector.(interface {
-			ReadPerfMetrics(context.Context) ([]MetricItem, error)
+			ReadPerfMetrics(context.Context, ...string) ([]MetricItem, error)
 		})
 		if !ok {
 			return nil, ErrMetricUnsupported
 		}
-		return reader.ReadPerfMetrics(ctx)
+		return reader.ReadPerfMetrics(ctx, MetricPerfTarget)
 	}
 
 	registry.MustRegister(MetricCStateTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
@@ -544,7 +544,7 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 		return readPressure(ctx)
 	})
 	registry.MustRegister(MetricPerfTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
-		return readPerf(ctx)
+		return readPerf(ctx, MetricPerfTarget)
 	})
 
 	for _, metricID := range []string{
@@ -563,7 +563,7 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 			}
 			for _, item := range items {
 				if item.MetricID == id {
-					return metricResult{Value: item.Value, Unit: item.Unit, ObservedAt: item.ObservedAt}, nil
+					return metricResultFromItem(item), nil
 				}
 			}
 			return nil, ErrMetricUnsupported
@@ -611,7 +611,7 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 	} {
 		id := metricID
 		registry.MustRegister(id, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
-			items, err := readPerf(ctx)
+			items, err := readPerf(ctx, id)
 			if err != nil {
 				return nil, err
 			}
