@@ -329,6 +329,7 @@ func (s *Server) Handle(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusPolicyViolation, "invalid hello")
 		return
 	}
+	s.traceWSMessage("in", hello.DeviceID, hello.ClientType, raw)
 
 	// Zero-valued test configurations must not create an already-expired
 	// response context. NewPeer uses the same 10-second fallback internally.
@@ -339,7 +340,10 @@ func (s *Server) Handle(w http.ResponseWriter, r *http.Request) {
 	peer := connections.NewPeer(hello.DeviceID, hello.ClientType,
 		s.cfg.WebSocket.MaxOutboundQueueMessages,
 		writeTimeout,
-		func(ctx context.Context, b []byte) error { return conn.Write(ctx, websocket.MessageText, b) },
+		func(ctx context.Context, b []byte) error {
+			s.traceWSMessage("out", hello.DeviceID, hello.ClientType, b)
+			return conn.Write(ctx, websocket.MessageText, b)
+		},
 		func() { conn.CloseNow() },
 	)
 	if err := s.clients.Register(peer); err != nil {
@@ -426,6 +430,9 @@ func (s *Server) Handle(w http.ResponseWriter, r *http.Request) {
 		typ, raw, err := conn.Read(ctx)
 		if err != nil {
 			return
+		}
+		if typ == websocket.MessageText {
+			s.traceWSMessage("in", peer.DeviceID, peer.ClientType, raw)
 		}
 		if typ != websocket.MessageText {
 			if err := write(Outbound{V: 1, Type: "error", Error: "only JSON text accepted"}); err != nil {
