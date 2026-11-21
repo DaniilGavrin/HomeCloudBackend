@@ -3,6 +3,8 @@ package cpu
 import (
 	"testing"
 	"time"
+
+	"github.com/shirou/gopsutil/v4/cpu"
 )
 
 func TestCalculateTotalUsage(t *testing.T) {
@@ -36,16 +38,30 @@ func TestCalculateTotalUsageRejectsInvalidBaseline(t *testing.T) {
 	}
 }
 
-func TestItemsForUsesCumulativeNanoseconds(t *testing.T) {
+func TestCalculateTotalUsageDoesNotDoubleCountGuest(t *testing.T) {
+	previous := Counters{TotalSeconds: 100, IdleSeconds: 60, UserSeconds: 40, GuestSeconds: 10}
+	current := Counters{TotalSeconds: 110, IdleSeconds: 65, UserSeconds: 45, GuestSeconds: 12}
+	got, ok := CalculateTotalUsage(previous, current)
+	if !ok {
+		t.Fatal("expected a valid interval")
+	}
+	if got != 50 {
+		t.Fatalf("usage = %v, want 50; guest must not be added to total a second time", got)
+	}
+}
+
+func TestItemsForUsesCumulativeNanosecondsAndExtendedCounters(t *testing.T) {
 	now := time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC)
-	current := Counters{
+	current := Snapshot{Counters: Counters{
 		UserSeconds: 2.5, SystemSeconds: 1.25, NiceSeconds: 0.5,
 		IdleSeconds: 5, IOWaitSeconds: 0.25, IRQSeconds: 0.125,
+		SoftIRQSeconds: 0.0625, StealSeconds: 0.03125,
+		GuestSeconds: 0.015625, GuestNiceSeconds: 0.0078125,
 		TotalSeconds: 10,
-	}
+	}}
 	items := itemsFor(current, nil, now)
-	if len(items) != 6 {
-		t.Fatalf("items = %d, want 6 without a baseline", len(items))
+	if len(items) != 10 {
+		t.Fatalf("items = %d, want 10 without a baseline", len(items))
 	}
 	expected := []struct {
 		id string
@@ -57,6 +73,10 @@ func TestItemsForUsesCumulativeNanoseconds(t *testing.T) {
 		{MetricIdle, 5000000000},
 		{MetricIOWait, 250000000},
 		{MetricIRQ, 125000000},
+		{MetricSoftIRQ, 62500000},
+		{MetricSteal, 31250000},
+		{MetricGuest, 15625000},
+		{MetricGuestNice, 7812500},
 	}
 	for i, want := range expected {
 		if items[i].MetricID != want.id || items[i].Value != want.value || items[i].Unit != "ns" {
@@ -65,11 +85,49 @@ func TestItemsForUsesCumulativeNanoseconds(t *testing.T) {
 	}
 }
 
-func TestItemsForAddsTotalUsageAfterBaseline(t *testing.T) {
-	previous := Counters{TotalSeconds: 10, IdleSeconds: 5}
-	current := Counters{TotalSeconds: 12, IdleSeconds: 6}
-	items := itemsFor(current, &previous, time.Now())
-	if len(items) != 7 || items[0].MetricID != MetricTotalUsage {
-		t.Fatalf("items = %#v, want totalusage plus six cumulative counters", items)
+func TestPerCoreMetricsUseObjectIDAndBaseline(t *testing.T) {
+	now := time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC)
+	previous := Snapshot{Cores: []CoreCounters{
+		{ObjectID: "cpu0", Counters: Counters{TotalSeconds: 100, IdleSeconds: 60, UserSeconds: 30}},
+		{ObjectID: "cpu2", Counters: Counters{TotalSeconds: 200, IdleSeconds: 100, UserSeconds: 70}},
+	}}
+	current := Snapshot{Cores: []CoreCounters{
+		{ObjectID: "cpu0", Counters: Counters{TotalSeconds: 110, IdleSeconds: 65, UserSeconds: 35}},
+		{ObjectID: "cpu2", Counters: Counters{TotalSeconds: 210, IdleSeconds: 105, UserSeconds: 75}},
+		{ObjectID: "cpu4", Counters: Counters{TotalSeconds: 10, IdleSeconds: 5, UserSeconds: 2}},
+	}}
+	userItems := coreUserItems(current.Cores, now)
+	if len(userItems) != 3 {
+		t.Fatalf("core user items = %d, want 3", len(userItems))
+	}
+	if userItems[0].ObjectID != "cpu0" || userItems[2].ObjectID != "cpu4" {
+		t.Fatalf("unexpected core object IDs: %#v", userItems)
+	}
+
+	usageItems := coreTotalUsageItems(previous.Cores, current.Cores, now)
+	if len(usageItems) != 2 {
+		t.Fatalf("core usage items = %d, want 2 (new cpu4 has no baseline)", len(usageItems))
+	}
+	for _, item := range usageItems {
+		if item.MetricID != MetricCoreTotalUsage || item.Unit != "percent" {
+			t.Fatalf("unexpected per-core usage item: %#v", item)
+		}
+		if item.Value != float64(50) {
+			t.Fatalf("core %s usage = %v, want 50", item.ObjectID, item.Value)
+		}
+	}
+}
+
+func TestCountersFromTimesDoesNotDoubleCountGuest(t *testing.T) {
+	got := countersFromTimes(cpu.TimesStat{
+		CPU: "cpu0", User: 10, System: 5, Nice: 2, Idle: 20,
+		Iowait: 3, Irq: 1, Softirq: 1, Steal: 1, Guest: 4, GuestNice: 2,
+	})
+	const wantTotal = 43.0
+	if got.TotalSeconds != wantTotal {
+		t.Fatalf("total seconds = %v, want %v (guest buckets are already included in user/nice)", got.TotalSeconds, wantTotal)
+	}
+	if got.GuestSeconds != 4 || got.GuestNiceSeconds != 2 {
+		t.Fatalf("guest counters = (%v, %v), want (4, 2)", got.GuestSeconds, got.GuestNiceSeconds)
 	}
 }
