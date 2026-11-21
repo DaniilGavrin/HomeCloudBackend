@@ -17,6 +17,23 @@ const (
 	EffectiveInterval = time.Second
 	maxSubscriptionsPerSession = 32
 	maxSubscriptionsTotal = 256
+
+	MetricRunQueue = "system.cpu.runqueue"
+	MetricPressureTarget = "system.cpu.pressure"
+	MetricPressureSome = "system.cpu.pressure.some"
+	MetricPressureFull = "system.cpu.pressure.full"
+	MetricPerfTarget = "system.cpu.perf"
+	MetricPerfCycles = "system.cpu.perf.cycles"
+	MetricPerfRefCycles = "system.cpu.perf.ref_cycles"
+	MetricPerfInstructions = "system.cpu.perf.instructions"
+	MetricPerfIPC = "system.cpu.perf.ipc"
+	MetricPerfBranches = "system.cpu.perf.branch_instructions"
+	MetricPerfBranchMisses = "system.cpu.perf.branch_misses"
+	MetricPerfCacheReferences = "system.cpu.perf.cache_references"
+	MetricPerfCacheMisses = "system.cpu.perf.cache_misses"
+	MetricPerfBusCycles = "system.cpu.perf.bus_cycles"
+	MetricPerfStalledFrontend = "system.cpu.perf.stalled_cycles_frontend"
+	MetricPerfStalledBackend = "system.cpu.perf.stalled_cycles_backend"
 )
 
 var (
@@ -68,10 +85,16 @@ func validTarget(target string) bool {
 		MetricThrottleThermalCoreEvents, MetricThrottleThermalCoreDuration,
 		MetricThrottleThermalPackageEvents, MetricThrottleThermalPackageDuration,
 		MetricThrottlePowerCoreEvents, MetricThrottlePowerPackageEvents,
-		MetricProcessesTarget, MetricForks, MetricProcessesRunning, MetricProcessesBlocked:
+		MetricProcessesTarget, MetricForks, MetricProcessesRunning, MetricProcessesBlocked,
+		MetricRunQueue, MetricPressureTarget, MetricPressureSome, MetricPressureFull,
+		MetricPerfTarget, MetricPerfCycles, MetricPerfRefCycles, MetricPerfInstructions,
+		MetricPerfIPC, MetricPerfBranches, MetricPerfBranchMisses, MetricPerfCacheReferences,
+		MetricPerfCacheMisses, MetricPerfBusCycles, MetricPerfStalledFrontend, MetricPerfStalledBackend:
 		return true
 	default:
-		return strings.HasPrefix(target, MetricCStateTarget+".")
+		return strings.HasPrefix(target, MetricCStateTarget+".") ||
+			strings.HasPrefix(target, MetricPressureTarget+".") ||
+			strings.HasPrefix(target, MetricPerfTarget+".")
 	}
 }
 
@@ -200,10 +223,18 @@ func isThrottlingTarget(target string) bool {
 	return target == MetricThrottlingTarget || strings.HasPrefix(target, MetricThrottlingTarget+".")
 }
 
+func isPressureTarget(target string) bool {
+	return target == MetricPressureTarget || strings.HasPrefix(target, MetricPressureTarget+".")
+}
+
+func isPerfTarget(target string) bool {
+	return target == MetricPerfTarget || strings.HasPrefix(target, MetricPerfTarget+".")
+}
+
 func isSystemCounterTarget(target string) bool {
 	switch target {
 	case MetricInterrupts, MetricContextSwitches, MetricForks,
-		MetricProcessesRunning, MetricProcessesBlocked, MetricProcessesTarget:
+		MetricProcessesRunning, MetricProcessesBlocked, MetricProcessesTarget, MetricRunQueue:
 		return true
 	default:
 		return false
@@ -222,7 +253,8 @@ func (m *Manager) hasMatchingTarget(match func(string) bool) bool {
 func (m *Manager) hasCPUSubscribers() bool {
 	return m.hasMatchingTarget(func(target string) bool {
 		return target == Target || (!isFrequencyTarget(target) &&
-			!isCStateTarget(target) && !isThrottlingTarget(target) && !isSystemCounterTarget(target))
+			!isCStateTarget(target) && !isThrottlingTarget(target) && !isSystemCounterTarget(target) &&
+			!isPressureTarget(target) && !isPerfTarget(target))
 	})
 }
 
@@ -247,6 +279,18 @@ func (m *Manager) hasThrottlingSubscribers() bool {
 func (m *Manager) hasSystemCounterSubscribers() bool {
 	return m.hasMatchingTarget(func(target string) bool {
 		return target == Target || isSystemCounterTarget(target)
+	})
+}
+
+func (m *Manager) hasPressureSubscribers() bool {
+	return m.hasMatchingTarget(func(target string) bool {
+		return target == Target || isPressureTarget(target)
+	})
+}
+
+func (m *Manager) hasPerfSubscribers() bool {
+	return m.hasMatchingTarget(func(target string) bool {
+		return target == Target || isPerfTarget(target)
 	})
 }
 
@@ -318,6 +362,8 @@ func (m *Manager) run(ctx context.Context) {
 	lastCStateFailed := false
 	lastThrottlingFailed := false
 	lastSystemCountersFailed := false
+	lastPressureFailed := false
+	lastPerfFailed := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -328,12 +374,17 @@ func (m *Manager) run(ctx context.Context) {
 			lastCStateFailed = false
 			lastThrottlingFailed = false
 			lastSystemCountersFailed = false
+			lastPressureFailed = false
+			lastPerfFailed = false
 			if !m.hasSubscribers() {
 				previous = nil
 				lastCollectionFailed = false
 				lastCStateFailed = false
 				lastThrottlingFailed = false
 				lastSystemCountersFailed = false
+				lastPressureFailed = false
+				lastPerfFailed = false
+				m.stopPerfReader()
 				continue
 			}
 			if m.hasCPUSubscribers() {
@@ -354,6 +405,8 @@ func (m *Manager) run(ctx context.Context) {
 			m.publishCStates(ctx, &lastCStateFailed)
 			m.publishThrottling(ctx, &lastThrottlingFailed)
 			m.publishSystemCounters(ctx, &lastSystemCountersFailed)
+			m.publishPressure(ctx, &lastPressureFailed)
+			m.publishPerf(ctx, &lastPerfFailed)
 		case <-ticker.C:
 			if !m.hasSubscribers() {
 				previous = nil
@@ -361,6 +414,9 @@ func (m *Manager) run(ctx context.Context) {
 				lastCStateFailed = false
 				lastThrottlingFailed = false
 				lastSystemCountersFailed = false
+				lastPressureFailed = false
+				lastPerfFailed = false
+				m.stopPerfReader()
 				continue
 			}
 			if m.hasCPUSubscribers() {
@@ -383,6 +439,8 @@ func (m *Manager) run(ctx context.Context) {
 			m.publishCStates(ctx, &lastCStateFailed)
 			m.publishThrottling(ctx, &lastThrottlingFailed)
 			m.publishSystemCounters(ctx, &lastSystemCountersFailed)
+			m.publishPressure(ctx, &lastPressureFailed)
+			m.publishPerf(ctx, &lastPerfFailed)
 		}
 	}
 }
@@ -401,32 +459,53 @@ type MetricItem struct {
 }
 
 func itemsFor(current Snapshot, previous *Snapshot, observedAt time.Time) []MetricItem {
-	timestamp := observedAt.Format(time.RFC3339Nano)
-	c := current.Counters
-	items := []MetricItem{
-		{MetricID: MetricUser, Value: counterNanoseconds(c.UserSeconds), Unit: "ns", ObservedAt: timestamp},
-		{MetricID: MetricSystem, Value: counterNanoseconds(c.SystemSeconds), Unit: "ns", ObservedAt: timestamp},
-		{MetricID: MetricNice, Value: counterNanoseconds(c.NiceSeconds), Unit: "ns", ObservedAt: timestamp},
-		{MetricID: MetricIdle, Value: counterNanoseconds(c.IdleSeconds), Unit: "ns", ObservedAt: timestamp},
-		{MetricID: MetricIOWait, Value: counterNanoseconds(c.IOWaitSeconds), Unit: "ns", ObservedAt: timestamp},
-		{MetricID: MetricIRQ, Value: counterNanoseconds(c.IRQSeconds), Unit: "ns", ObservedAt: timestamp},
-		{MetricID: MetricSoftIRQ, Value: counterNanoseconds(c.SoftIRQSeconds), Unit: "ns", ObservedAt: timestamp},
-		{MetricID: MetricSteal, Value: counterNanoseconds(c.StealSeconds), Unit: "ns", ObservedAt: timestamp},
-		{MetricID: MetricGuest, Value: counterNanoseconds(c.GuestSeconds), Unit: "ns", ObservedAt: timestamp},
-		{MetricID: MetricGuestNice, Value: counterNanoseconds(c.GuestNiceSeconds), Unit: "ns", ObservedAt: timestamp},
-	}
-	if previous != nil {
-		if value, ok := CalculateTotalUsage(previous.Counters, c); ok {
-			items = append([]MetricItem{{MetricID: MetricTotalUsage, Value: value, Unit: "percent", ObservedAt: timestamp}}, items...)
+	timestamp := observedAt.UTC().Format(time.RFC3339Nano)
+	items := make([]MetricItem, 0, 16+len(current.Cores)*2+len(current.Issues))
+	if aggregateAvailable(current) {
+		c := current.Counters
+		items = append(items,
+			MetricItem{MetricID: MetricUser, Value: counterNanoseconds(c.UserSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
+			MetricItem{MetricID: MetricSystem, Value: counterNanoseconds(c.SystemSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
+			MetricItem{MetricID: MetricNice, Value: counterNanoseconds(c.NiceSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
+			MetricItem{MetricID: MetricIdle, Value: counterNanoseconds(c.IdleSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
+			MetricItem{MetricID: MetricIOWait, Value: counterNanoseconds(c.IOWaitSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
+			MetricItem{MetricID: MetricIRQ, Value: counterNanoseconds(c.IRQSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
+			MetricItem{MetricID: MetricSoftIRQ, Value: counterNanoseconds(c.SoftIRQSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
+			MetricItem{MetricID: MetricSteal, Value: counterNanoseconds(c.StealSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
+			MetricItem{MetricID: MetricGuest, Value: counterNanoseconds(c.GuestSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
+			MetricItem{MetricID: MetricGuestNice, Value: counterNanoseconds(c.GuestNiceSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
+		)
+		if previous != nil && aggregateAvailable(*previous) {
+			if value, ok := CalculateTotalUsage(previous.Counters, c); ok {
+				windowMS := EffectiveInterval.Milliseconds()
+				if !previous.CollectedAt.IsZero() && !current.CollectedAt.IsZero() {
+					windowMS = current.CollectedAt.Sub(previous.CollectedAt).Milliseconds()
+				}
+				items = append(items, MetricItem{MetricID: MetricTotalUsage, Value: value, Unit: "percent", ObservedAt: timestamp, WindowMS: windowMS, SourceID: "gopsutil.cpu.times", Status: StatusValid})
+			} else {
+				items = append(items, statusItem(MetricTotalUsage, "", StatusUnavailable, "counter_reset", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", observedAt))
+			}
+		} else {
+			items = append(items, statusItem(MetricTotalUsage, "", StatusUnknown, "no_baseline", "", "gopsutil.cpu.times", observedAt))
 		}
+	} else {
+		status := current.AggregateStatus
+		if status == "" {
+			status = StatusUnknown
+		}
+		items = append(items, statusItem(MetricTotalUsage, "", status, "aggregate_source_unavailable", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", observedAt))
 	}
 	items = append(items, coreUserItems(current.Cores, observedAt)...)
 	if previous != nil {
 		items = append(items, coreTotalUsageItems(previous.Cores, current.Cores, observedAt)...)
+	} else {
+		for _, core := range current.Cores {
+			items = append(items, statusItem(MetricCoreTotalUsage, core.ObjectID, StatusUnknown, "no_baseline", "", "gopsutil.cpu.times", observedAt))
+		}
 	}
+	items = append(items, current.Issues...)
 	return items
 }
-
 func (m *Manager) publishCStates(ctx context.Context, alreadyFailed *bool) {
 	if !m.hasCStateSubscribers() {
 		*alreadyFailed = false
@@ -490,6 +569,55 @@ func (m *Manager) publishSystemCounters(ctx context.Context, alreadyFailed *bool
 	m.publish(ctx, items)
 }
 
+func (m *Manager) publishPressure(ctx context.Context, alreadyFailed *bool) {
+	if !m.hasPressureSubscribers() {
+		*alreadyFailed = false
+		return
+	}
+	reader, ok := m.collector.(interface {
+		ReadPressureMetrics(context.Context) ([]MetricItem, error)
+	})
+	if !ok {
+		m.publishExtendedError(ctx, MetricPressureTarget, ErrMetricUnsupported, alreadyFailed)
+		return
+	}
+	items, err := reader.ReadPressureMetrics(ctx)
+	if err != nil {
+		m.publishExtendedError(ctx, MetricPressureTarget, err, alreadyFailed)
+		return
+	}
+	*alreadyFailed = false
+	m.publish(ctx, items)
+}
+
+func (m *Manager) publishPerf(ctx context.Context, alreadyFailed *bool) {
+	if !m.hasPerfSubscribers() {
+		m.stopPerfReader()
+		*alreadyFailed = false
+		return
+	}
+	reader, ok := m.collector.(interface {
+		ReadPerfMetrics(context.Context) ([]MetricItem, error)
+	})
+	if !ok {
+		m.publishExtendedError(ctx, MetricPerfTarget, ErrMetricUnsupported, alreadyFailed)
+		return
+	}
+	items, err := reader.ReadPerfMetrics(ctx)
+	if err != nil {
+		m.publishExtendedError(ctx, MetricPerfTarget, err, alreadyFailed)
+		return
+	}
+	*alreadyFailed = false
+	m.publish(ctx, items)
+}
+
+func (m *Manager) stopPerfReader() {
+	if closer, ok := m.collector.(interface{ StopPerfMetrics() }); ok {
+		closer.StopPerfMetrics()
+	}
+}
+
 func (m *Manager) publishExtendedError(ctx context.Context, target string, cause error, alreadyFailed *bool) {
 	if *alreadyFailed {
 		return
@@ -502,7 +630,7 @@ func (m *Manager) publishExtendedError(ctx context.Context, target string, cause
 	for _, sub := range m.snapshot() {
 		matches := false
 		switch target {
-		case MetricCStateTarget, MetricThrottlingTarget:
+		case MetricCStateTarget, MetricThrottlingTarget, MetricPressureTarget, MetricPerfTarget:
 			matches = sub.target == target || strings.HasPrefix(sub.target, target+".")
 		case "system.cpu":
 			matches = isSystemCounterTarget(sub.target)
@@ -534,6 +662,11 @@ func (m *Manager) publish(ctx context.Context, items []MetricItem) {
 	if len(items) == 0 {
 		return
 	}
+	for i := range items {
+		if items[i].Status == "" {
+			items[i].Status = StatusValid
+		}
+	}
 	for _, sub := range m.snapshot() {
 		filtered := items
 		if sub.target != Target {
@@ -545,7 +678,8 @@ func (m *Manager) publish(ctx context.Context, items []MetricItem) {
 						filtered = append(filtered, item)
 					}
 				case sub.target == MetricCStateTarget, sub.target == MetricThrottlingTarget,
-					sub.target == MetricProcessesTarget:
+					sub.target == MetricProcessesTarget, sub.target == MetricPressureTarget,
+					sub.target == MetricPerfTarget:
 					if strings.HasPrefix(item.MetricID, sub.target+".") {
 						filtered = append(filtered, item)
 					}
