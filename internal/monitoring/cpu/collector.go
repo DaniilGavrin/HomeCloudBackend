@@ -210,7 +210,7 @@ func validateCounters(c Counters) error {
 			return errors.New("CPU counters contain invalid values")
 		}
 	}
-	if c.IdleSeconds > c.TotalSeconds {
+	if c.IdleSeconds+c.IOWaitSeconds > c.TotalSeconds {
 		return errors.New("CPU idle time exceeds total time")
 	}
 	return nil
@@ -270,7 +270,11 @@ func waitWindow(ctx context.Context, window time.Duration) error {
 // Guest time is not added separately because Linux already includes it in user/nice.
 func CalculateTotalUsage(previous, current Counters) (float64, bool) {
 	totalDelta := current.TotalSeconds - previous.TotalSeconds
-	idleDelta := current.IdleSeconds - previous.IdleSeconds
+	// Linux I/O wait is preserved as its own counter but excluded from busy
+	// CPU time: the CPU is not executing work while waiting for I/O.
+	previousIdle := previous.IdleSeconds + previous.IOWaitSeconds
+	currentIdle := current.IdleSeconds + current.IOWaitSeconds
+	idleDelta := currentIdle - previousIdle
 	if totalDelta <= 0 || idleDelta < 0 || idleDelta > totalDelta {
 		return 0, false
 	}
