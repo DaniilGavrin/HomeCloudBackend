@@ -175,19 +175,17 @@ func readLinuxTopology(ctx context.Context, cpuSysfsPath string) ([]MetricItem, 
 			numaID: numaID, online: onlineSet[id],
 		}
 		locations = append(locations, location)
-		if location.online {
-			if coreID != "" && packageID != "" {
-				cores[packageID+":"+coreID] = true
-			}
-			if packageID != "" {
-				packages[packageID] = true
-			}
-			if dieID != "" && packageID != "" {
-				dies[packageID+":"+dieID] = true
-			}
-			if numaID != "" {
-				numaNodes[numaID] = true
-			}
+		if coreID != "" && packageID != "" {
+			cores[packageID+":"+coreID] = true
+		}
+		if packageID != "" {
+			packages[packageID] = true
+		}
+		if dieID != "" && packageID != "" {
+			dies[packageID+":"+dieID] = true
+		}
+		if numaID != "" {
+			numaNodes[numaID] = true
 		}
 	}
 	if len(cores) > 0 {
@@ -207,8 +205,12 @@ func readLinuxTopology(ctx context.Context, cpuSysfsPath string) ([]MetricItem, 
 		objectID := fmt.Sprintf("cpu%d", location.cpuID)
 		items = append(items, MetricItem{MetricID: MetricTopologyOnline, ObjectID: objectID, Value: location.online, Unit: "boolean"})
 		appendID := func(metricID, value string) {
-			if value != "" {
-				items = append(items, MetricItem{MetricID: metricID, ObjectID: objectID, Value: value, Unit: "id"})
+			if value == "" {
+				return
+			}
+			id, err := strconv.Atoi(value)
+			if err == nil && id >= 0 {
+				items = append(items, MetricItem{MetricID: metricID, ObjectID: objectID, Value: id, Unit: "id"})
 			}
 		}
 		appendID(MetricTopologyCoreID, location.coreID)
@@ -217,22 +219,24 @@ func readLinuxTopology(ctx context.Context, cpuSysfsPath string) ([]MetricItem, 
 		appendID(MetricTopologyNUMAID, location.numaID)
 	}
 
-	if info, infoErr := gopsutilcpu.InfoWithContext(ctx); infoErr == nil && len(info) > 0 {
-		first := info[0]
-		appendStringMetric := func(metricID, value string) {
-			if strings.TrimSpace(value) != "" {
-				items = append(items, MetricItem{MetricID: metricID, Value: value, Unit: "string"})
+	if info, infoErr := gopsutilcpu.InfoWithContext(ctx); infoErr == nil {
+		for _, cpuInfo := range info {
+			objectID := fmt.Sprintf("cpu%d", cpuInfo.CPU)
+			appendStringMetric := func(metricID, value string) {
+				if strings.TrimSpace(value) != "" {
+					items = append(items, MetricItem{MetricID: metricID, ObjectID: objectID, Value: value, Unit: "string"})
+				}
 			}
-		}
-		appendStringMetric(MetricTopologyVendor, first.VendorID)
-		appendStringMetric(MetricTopologyModel, first.ModelName)
-		appendStringMetric(MetricTopologyFamily, first.Family)
-		appendStringMetric(MetricTopologyModelID, first.Model)
-		if len(first.Flags) > 0 {
-			items = append(items, MetricItem{MetricID: MetricTopologyFeatures, Value: first.Flags, Unit: "list"})
-		}
-		if first.Stepping != 0 {
-			items = append(items, MetricItem{MetricID: MetricTopologyStepping, Value: first.Stepping, Unit: "count"})
+			appendStringMetric(MetricTopologyVendor, cpuInfo.VendorID)
+			appendStringMetric(MetricTopologyModel, cpuInfo.ModelName)
+			appendStringMetric(MetricTopologyFamily, cpuInfo.Family)
+			appendStringMetric(MetricTopologyModelID, cpuInfo.Model)
+			if len(cpuInfo.Flags) > 0 {
+				items = append(items, MetricItem{MetricID: MetricTopologyFeatures, ObjectID: objectID, Value: cpuInfo.Flags, Unit: "list"})
+			}
+			if cpuInfo.Stepping != 0 {
+				items = append(items, MetricItem{MetricID: MetricTopologyStepping, ObjectID: objectID, Value: cpuInfo.Stepping, Unit: "count"})
+			}
 		}
 	}
 	return items, nil
