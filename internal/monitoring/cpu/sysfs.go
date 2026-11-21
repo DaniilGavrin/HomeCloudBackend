@@ -485,3 +485,23 @@ func isFrequencyDomainID(value string) bool {
 	id, err := strconv.Atoi(strings.TrimPrefix(value, "policy"))
 	return err == nil && id >= 0
 }
+
+func cpusForFrequencyPolicy(cpuSysfsPath, policyID string) []int {
+	if !isFrequencyDomainID(policyID) {
+		return nil
+	}
+	path := filepath.Join(cpuSysfsPath, "cpufreq", policyID)
+	cpuList, err := readSysfsValue(filepath.Join(path, "affected_cpus"))
+	if err != nil {
+		cpuList, err = readSysfsValue(filepath.Join(path, "related_cpus"))
+	}
+	if err != nil {
+		return nil
+	}
+	cpus, err := parseCPUList(cpuList)
+	if err != nil {
+		return nil
+	}
+	sort.Ints(cpus)
+	return cpus
+}
