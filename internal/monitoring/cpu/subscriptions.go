@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sort"
 	"sync"
 	"time"
 
@@ -628,19 +629,30 @@ func (m *Manager) publishPerf(ctx context.Context, alreadyFailed *bool) {
 		return
 	}
 	reader, ok := m.collector.(interface {
-		ReadPerfMetrics(context.Context) ([]MetricItem, error)
+		ReadPerfMetrics(context.Context, ...string) ([]MetricItem, error)
 	})
 	if !ok {
 		m.publishExtendedError(ctx, MetricPerfTarget, ErrMetricUnsupported, alreadyFailed)
 		return
 	}
-	items, err := reader.ReadPerfMetrics(ctx)
+	items, err := reader.ReadPerfMetrics(ctx, m.perfTargets()...)
 	if err != nil {
 		m.publishExtendedError(ctx, MetricPerfTarget, err, alreadyFailed)
 		return
 	}
 	*alreadyFailed = false
 	m.publish(ctx, items)
+}
+
+func (m *Manager) perfTargets() []string {
+	targets := make([]string, 0)
+	for _, sub := range m.snapshot() {
+		if isPerfTarget(sub.target) {
+			targets = append(targets, sub.target)
+		}
+	}
+	sort.Strings(targets)
+	return targets
 }
 
 func (m *Manager) stopPerfReader() {
