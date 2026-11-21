@@ -201,14 +201,10 @@ func newPerfReader(cpus []int, cpuListErr error, events []perfEventSpec, metricI
 				Size: uint32(unsafe.Sizeof(unix.PerfEventAttr{})),
 				Config: event.config,
 				Read_format: unix.PERF_FORMAT_TOTAL_TIME_ENABLED | unix.PERF_FORMAT_TOTAL_TIME_RUNNING,
-				Bits: unix.PerfBitDisabled,
 			}
 			fd, err := unix.PerfEventOpen(&attr, -1, cpuID, -1, perfFlagFDCloseOnExec)
 			if err == nil {
 				err = unix.IoctlSetInt(fd, unix.PERF_EVENT_IOC_RESET, 0)
-			}
-			if err == nil {
-				err = unix.IoctlSetInt(fd, unix.PERF_EVENT_IOC_ENABLE, 0)
 			}
 			if err != nil {
 				if fd >= 0 {
@@ -228,7 +224,6 @@ func newPerfReader(cpus []int, cpuListErr error, events []perfEventSpec, metricI
 func (r *perfReader) close() {
 	for _, cpuFDs := range r.fds {
 		for _, fd := range cpuFDs {
-			_ = unix.IoctlSetInt(fd, unix.PERF_EVENT_IOC_DISABLE, 0)
 			_ = unix.Close(fd)
 		}
 	}
