@@ -448,6 +448,9 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 			return nil, err
 		}
 		items := coreTotalUsageItems(before.Cores, after.Cores, time.Now().UTC())
+		for i := range items {
+			items[i].WindowMS = window.Milliseconds()
+		}
 		if len(items) == 0 {
 			return []MetricItem{statusItem(MetricCoreTotalUsage, "", StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", time.Now().UTC())}, nil
 		}
@@ -582,7 +585,7 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 			}
 			for _, item := range items {
 				if item.MetricID == id {
-					return metricResult{Value: item.Value, Unit: item.Unit, ObservedAt: item.ObservedAt}, nil
+					return metricResultFromItem(item), nil
 				}
 			}
 			return nil, ErrMetricUnsupported
