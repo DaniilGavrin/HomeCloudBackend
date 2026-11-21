@@ -95,7 +95,14 @@ func parseSchedDebugRunQueue(data []byte) (uint64, bool, error) {
 	var total uint64
 	found := false
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+		rawLine := scanner.Text()
+		indent := len(rawLine) - len(strings.TrimLeft(rawLine, " \t"))
+		// Count only the runqueue-level nr_running entry. Nested cfs_rq
+		// entries describe sub-queues and would otherwise be double-counted.
+		if indent > 2 {
+			continue
+		}
+		line := strings.TrimSpace(rawLine)
 		if !strings.Contains(line, "nr_running") {
 			continue
 		}
