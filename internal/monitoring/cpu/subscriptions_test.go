@@ -238,10 +238,18 @@ func TestExtendedCPUSubscriptionsPublishAndFilterMetrics(t *testing.T) {
 			if !ok || len(items) == 0 {
 				t.Fatalf("published items = %#v", payload["items"])
 			}
+			foundExpected := false
 			for _, item := range items {
-				if item.MetricID != test.wantMetric && test.target != MetricCStateTarget {
+				if item.MetricID == test.wantMetric {
+					foundExpected = true
+				}
+				if test.target != MetricCStateTarget && test.target != MetricThrottlingTarget &&
+					item.MetricID != test.wantMetric {
 					t.Errorf("unexpected metric %q for target %q", item.MetricID, test.target)
 				}
+			}
+			if !foundExpected {
+				t.Errorf("expected metric %q was not published", test.wantMetric)
 			}
 		})
 	}
