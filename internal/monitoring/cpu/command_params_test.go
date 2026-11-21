@@ -1,6 +1,7 @@
 package cpu
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -71,7 +72,7 @@ func TestFilterCoreUsageItemsByLogicalCPU(t *testing.T) {
 		{MetricID: MetricCoreUsage, ObjectID: "cpu1", Value: 20},
 	}
 	cpuID := int64(1)
-	filtered, err := filterCoreUsageItems(t.Context(), items, &cpuID, nil)
+	filtered, err := filterCoreUsageItems(context.Background(), items, &cpuID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
