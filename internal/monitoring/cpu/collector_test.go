@@ -1,6 +1,7 @@
 package cpu
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -122,6 +123,66 @@ func TestPerCoreMetricsUseObjectIDAndBaseline(t *testing.T) {
 	if usageItems[2].ObjectID != "cpu4" || usageItems[2].Status != StatusUnknown || usageItems[2].Reason != "no_baseline" {
 		t.Fatalf("new CPU must report explicit no-baseline state: %#v", usageItems[2])
 	}
+}
+
+
+func TestSnapshotFromStatsKeepsAggregateWhenOneCoreIsInvalid(t *testing.T) {
+	now := time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC)
+	aggregate := []cpu.TimesStat{{
+		CPU: "cpu-total", User: 20, System: 10, Idle: 60, Iowait: 5,
+	}}
+	perCPU := []cpu.TimesStat{
+		{CPU: "cpu0", User: 10, System: 5, Idle: 30, Iowait: 2},
+		{CPU: "cpu1", User: -1, System: 5, Idle: 30},
+	}
+	snapshot := snapshotFromStats(aggregate, nil, perCPU, nil, now)
+	if snapshot.AggregateStatus != StatusValid {
+		t.Fatalf("aggregate status = %q, want valid", snapshot.AggregateStatus)
+	}
+	if len(snapshot.Cores) != 1 || snapshot.Cores[0].ObjectID != "cpu0" {
+		t.Fatalf("valid core data was not preserved: %#v", snapshot.Cores)
+	}
+	if !hasStatusIssue(snapshot.Issues, MetricCoreUser, "cpu1", StatusInvalid) {
+		t.Fatalf("invalid core was not reported independently: %#v", snapshot.Issues)
+	}
+}
+
+func TestSnapshotFromStatsKeepsPerCoreWhenAggregateFails(t *testing.T) {
+	now := time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC)
+	perCPU := []cpu.TimesStat{
+		{CPU: "cpu0", User: 10, System: 5, Idle: 30, Iowait: 2},
+	}
+	snapshot := snapshotFromStats(nil, errors.New("aggregate source failed"), perCPU, nil, now)
+	if snapshot.AggregateStatus != StatusSourceError {
+		t.Fatalf("aggregate status = %q, want source_error", snapshot.AggregateStatus)
+	}
+	if len(snapshot.Cores) != 1 || snapshot.Cores[0].ObjectID != "cpu0" {
+		t.Fatalf("per-core data was lost after aggregate failure: %#v", snapshot.Cores)
+	}
+	if !hasStatusIssue(snapshot.Issues, MetricTotalUsage, "", StatusSourceError) {
+		t.Fatalf("aggregate failure was not represented in metric status: %#v", snapshot.Issues)
+	}
+}
+
+func TestSnapshotFromStatsKeepsAggregateWhenPerCoreSourceFails(t *testing.T) {
+	now := time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC)
+	aggregate := []cpu.TimesStat{{CPU: "cpu-total", User: 20, System: 10, Idle: 60, Iowait: 5}}
+	snapshot := snapshotFromStats(aggregate, nil, nil, errors.New("per-core source failed"), now)
+	if snapshot.AggregateStatus != StatusValid {
+		t.Fatalf("aggregate status = %q, want valid", snapshot.AggregateStatus)
+	}
+	if !hasStatusIssue(snapshot.Issues, MetricCoreUser, "", StatusSourceError) {
+		t.Fatalf("per-core source failure was not isolated: %#v", snapshot.Issues)
+	}
+}
+
+func hasStatusIssue(items []MetricItem, metricID, objectID, status string) bool {
+	for _, item := range items {
+		if item.MetricID == metricID && item.ObjectID == objectID && item.Status == status {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCountersFromTimesDoesNotDoubleCountGuest(t *testing.T) {
