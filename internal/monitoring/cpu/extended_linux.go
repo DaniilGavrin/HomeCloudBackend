@@ -17,8 +17,6 @@ import (
 
 const (
 	defaultProcStatPath = "/proc/stat"
-	cStateTimeUnitScale = uint64(time.Microsecond)
-	throttleTimeUnitScale = uint64(time.Millisecond)
 )
 
 func (c *SystemCollector) ReadCStates(ctx context.Context) ([]MetricItem, error) {
@@ -125,8 +123,10 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 	}
 	sort.Ints(cpuIDs)
 
-	seenCore := make(map[string]bool)
-	seenPackage := make(map[string]bool)
+	seenCoreEvents := make(map[string]bool)
+	seenCoreDuration := make(map[string]bool)
+	seenPackageEvents := make(map[string]bool)
+	seenPackageDuration := make(map[string]bool)
 	items := make([]MetricItem, 0, len(cpuIDs)*4)
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 
@@ -148,28 +148,28 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 		coreKey := packageID + ":" + coreID
 		throttlePath := filepath.Join(cpuPath, "thermal_throttle")
 
-		if !seenCore[coreKey] {
-			coreObjectID := "package" + packageID + "/core" + coreID
+		coreObjectID := "package" + packageID + "/core" + coreID
+		if !seenCoreEvents[coreKey] {
 			appendThrottleCounter(&items, throttlePath, "core_throttle_count",
 				MetricThrottleThermalCoreEvents, coreObjectID, "count", 1, now)
+			seenCoreEvents[coreKey] = hasThrottleObject(items, MetricThrottleThermalCoreEvents, coreObjectID)
+		}
+		if !seenCoreDuration[coreKey] {
 			appendThrottleCounter(&items, throttlePath, "core_throttle_total_time_ms",
 				MetricThrottleThermalCoreDuration, coreObjectID, "ns", uint64(time.Millisecond), now)
-			if hasThrottleObject(items, MetricThrottleThermalCoreEvents, coreObjectID) ||
-				hasThrottleObject(items, MetricThrottleThermalCoreDuration, coreObjectID) {
-				seenCore[coreKey] = true
-			}
+			seenCoreDuration[coreKey] = hasThrottleObject(items, MetricThrottleThermalCoreDuration, coreObjectID)
 		}
 
-		if !seenPackage[packageID] {
-			packageObjectID := "package" + packageID
-			before := len(items)
+		packageObjectID := "package" + packageID
+		if !seenPackageEvents[packageID] {
 			appendThrottleCounter(&items, throttlePath, "package_throttle_count",
 				MetricThrottleThermalPackageEvents, packageObjectID, "count", 1, now)
+			seenPackageEvents[packageID] = hasThrottleObject(items, MetricThrottleThermalPackageEvents, packageObjectID)
+		}
+		if !seenPackageDuration[packageID] {
 			appendThrottleCounter(&items, throttlePath, "package_throttle_total_time_ms",
 				MetricThrottleThermalPackageDuration, packageObjectID, "ns", uint64(time.Millisecond), now)
-			if len(items) > before {
-				seenPackage[packageID] = true
-			}
+			seenPackageDuration[packageID] = hasThrottleObject(items, MetricThrottleThermalPackageDuration, packageObjectID)
 		}
 	}
 	if len(items) == 0 {
@@ -219,6 +219,7 @@ func readLinuxSystemCounters(ctx context.Context, procStatPath string) ([]Metric
 
 	values := make(map[string]uint64, 2)
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
 			return nil, err
