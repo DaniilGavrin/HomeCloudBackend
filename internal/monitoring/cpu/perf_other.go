@@ -9,23 +9,17 @@ import (
 
 type perfReader struct{}
 
-func (c *SystemCollector) ReadPerfMetrics(ctx context.Context) ([]MetricItem, error) {
+func (c *SystemCollector) ReadPerfMetrics(ctx context.Context, targets ...string) ([]MetricItem, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
-	items := make([]MetricItem, 0, len(genericPerfMetricIDs))
-	for _, metricID := range genericPerfMetricIDs {
+	metricIDs := selectPerfMetricIDs(targets)
+	items := make([]MetricItem, 0, len(metricIDs))
+	for _, metricID := range metricIDs {
 		items = append(items, statusItem(metricID, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "platform.perf_event", now))
 	}
 	return items, nil
 }
 
 func (c *SystemCollector) StopPerfMetrics() {}
-
-var genericPerfMetricIDs = []string{
-	MetricPerfCycles, MetricPerfRefCycles, MetricPerfInstructions, MetricPerfIPC,
-	MetricPerfBranches, MetricPerfBranchMisses, MetricPerfCacheReferences,
-	MetricPerfCacheMisses, MetricPerfBusCycles, MetricPerfStalledFrontend,
-	MetricPerfStalledBackend, MetricPerfBranchMissRate, MetricPerfCacheMissRate,
-}
