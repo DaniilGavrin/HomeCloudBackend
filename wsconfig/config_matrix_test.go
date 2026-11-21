@@ -552,7 +552,6 @@ func TestConfigCrossFieldAndSecurityRules(t *testing.T) {
 		{"device discovery unsupported", map[string]string{"devices.discovery.mdns_enabled": "true"}},
 		{"event history unsupported", map[string]string{"message_bus.event_history.enabled": "true"}},
 		{"log secrets prohibited", map[string]string{"logging.log_secrets": "true"}},
-		{"log payloads prohibited", map[string]string{"logging.log_message_payloads": "true"}},
 	}
 	for _, tc := range tests {
 		tc := tc
@@ -564,6 +563,27 @@ func TestConfigCrossFieldAndSecurityRules(t *testing.T) {
 			}
 			if _, err := LoadAt(writeDocument(t, doc)); err == nil {
 				t.Fatalf("expected rejection: %v", tc.replacements)
+			}
+		})
+	}
+}
+
+
+func TestConfigAllowsRedactedMessagePayloadLogging(t *testing.T) {
+	for _, mode := range []string{"0xA1", "0xA2"} {
+		mode := mode
+		t.Run("Mode "+mode, func(t *testing.T) {
+			setupSecret(t)
+			doc := referenceDocument(t)
+			mutateYAML(t, doc, "type_start.start_byte", mode, false)
+			mutateYAML(t, doc, "logging.log_message_payloads", "true", false)
+
+			cfg, err := LoadAt(writeDocument(t, doc))
+			if err != nil {
+				t.Fatalf("redacted payload logging should be accepted: %v", err)
+			}
+			if !cfg.Logging.LogMessagePayloads {
+				t.Fatal("log_message_payloads was not preserved")
 			}
 		})
 	}
