@@ -45,11 +45,6 @@ const (
 
 const defaultSysfsCPUPath = "/sys/devices/system/cpu"
 
-type FrequencyStats struct {
-	ObjectID string
-	Items    []MetricItem
-}
-
 // readLinuxFrequency reads the cpufreq policy interface. scaling_cur_freq is
 // intentionally reported as the driver's last/current scaling value; it is
 // not presented as a hardware-instantaneous APERF/MPERF measurement.
