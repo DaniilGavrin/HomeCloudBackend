@@ -390,9 +390,14 @@ func (m *Manager) run(ctx context.Context) {
 type MetricItem struct {
 	MetricID string `json:"metric_id"`
 	ObjectID string `json:"object_id,omitempty"`
-	Value any `json:"value"`
-	Unit string `json:"unit"`
-	ObservedAt string `json:"observed_at"`
+	Value any `json:"value,omitempty"`
+	Unit string `json:"unit,omitempty"`
+	ObservedAt string `json:"observed_at,omitempty"`
+	Status string `json:"status,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	ErrorCode string `json:"error_code,omitempty"`
+	SourceID string `json:"source_id,omitempty"`
+	WindowMS int64 `json:"window_ms,omitempty"`
 }
 
 func itemsFor(current Snapshot, previous *Snapshot, observedAt time.Time) []MetricItem {
