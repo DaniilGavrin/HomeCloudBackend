@@ -52,8 +52,9 @@ type CoreCounters struct {
 }
 
 type Snapshot struct {
-	Counters Counters
-	Cores    []CoreCounters
+	Counters  Counters
+	Cores     []CoreCounters
+	Frequency []MetricItem
 }
 
 type Collector interface {
@@ -109,6 +110,9 @@ func (c *SystemCollector) Read(ctx context.Context) (Snapshot, error) {
 	if len(result.Cores) == 0 {
 		return Snapshot{}, errors.New("per-CPU counters are unavailable")
 	}
+	// Frequency is an optional Linux provider. Missing cpufreq support does not
+	// make CPU time counters unavailable.
+	result.Frequency, _ = readLinuxFrequency(ctx, defaultSysfsCPUPath)
 	return result, nil
 }
 
@@ -261,6 +265,41 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 		}
 		return coreUserItems(snapshot.Cores, time.Now().UTC()), nil
 	})
+	registry.MustRegister(MetricTopologyCommand, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+		items, err := readLinuxTopology(ctx, defaultSysfsCPUPath)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		for i := range items {
+			items[i].ObservedAt = now
+		}
+		return items, nil
+	})
+
+	registerFrequencyCommand := func(metricID string) {
+		registry.MustRegister(metricID, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+			items, err := readLinuxFrequency(ctx, defaultSysfsCPUPath)
+			if err != nil {
+				return nil, err
+			}
+			now := time.Now().UTC().Format(time.RFC3339Nano)
+			filtered := make([]MetricItem, 0)
+			for _, item := range items {
+				if item.MetricID == metricID {
+					item.ObservedAt = now
+					filtered = append(filtered, item)
+				}
+			}
+			return filtered, nil
+		})
+	}
+	registerFrequencyCommand(MetricFrequencyCurrent)
+	registerFrequencyCommand(MetricFrequencyMin)
+	registerFrequencyCommand(MetricFrequencyMax)
+	registerFrequencyCommand(MetricFrequencyBase)
+	registerFrequencyCommand(MetricFrequencyGovernor)
+
 	registry.MustRegister(MetricCoreTotalUsage, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
 		window := DefaultWindow
 		if len(msg.Data) > 0 {
