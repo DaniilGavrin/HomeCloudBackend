@@ -109,19 +109,21 @@ func TestPerCoreMetricsUseObjectIDAndBaseline(t *testing.T) {
 	}
 
 	usageItems := coreTotalUsageItems(previous.Cores, current.Cores, now)
-	if len(usageItems) != 3 {
-		t.Fatalf("core usage items = %d, want 3 including cpu4 no-baseline state", len(usageItems))
+	if len(usageItems) != 6 {
+		t.Fatalf("core usage items = %d, want canonical and registry aliases for cpu0/cpu1/cpu4", len(usageItems))
 	}
-	for _, item := range usageItems[:2] {
-		if item.MetricID != MetricCoreTotalUsage || item.Unit != "percent" || item.Status != StatusValid {
+	for _, item := range usageItems[:4] {
+		if (item.MetricID != MetricCoreTotalUsage && item.MetricID != MetricCoreUsage) || item.Unit != "percent" || item.Status != StatusValid {
 			t.Fatalf("unexpected per-core usage item: %#v", item)
 		}
 		if item.Value != float64(50) {
 			t.Fatalf("core %s usage = %v, want 50", item.ObjectID, item.Value)
 		}
 	}
-	if usageItems[2].ObjectID != "cpu4" || usageItems[2].Status != StatusUnknown || usageItems[2].Reason != "no_baseline" {
-		t.Fatalf("new CPU must report explicit no-baseline state: %#v", usageItems[2])
+	for _, item := range usageItems[4:] {
+		if item.ObjectID != "cpu4" || item.Status != StatusUnknown || item.Reason != "no_baseline" {
+			t.Fatalf("new CPU must report explicit no-baseline state under both IDs: %#v", item)
+		}
 	}
 }
 
