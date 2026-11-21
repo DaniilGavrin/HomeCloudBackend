@@ -415,6 +415,7 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 	registerFrequencyCommand(MetricFrequencyMax)
 	registerFrequencyCommand(MetricFrequencyBase)
 	registerFrequencyCommand(MetricFrequencyGovernor)
+	registerFrequencyCommand(MetricCoreFrequency)
 
 	readCoreUsage := func(ctx context.Context, msg commands.Inbound) ([]MetricItem, error) {
 		window := DefaultWindow
@@ -603,7 +604,7 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 		MetricPerfCycles, MetricPerfRefCycles, MetricPerfInstructions, MetricPerfIPC,
 		MetricPerfBranches, MetricPerfBranchMisses, MetricPerfCacheReferences,
 		MetricPerfCacheMisses, MetricPerfBusCycles, MetricPerfStalledFrontend,
-		MetricPerfStalledBackend,
+		MetricPerfStalledBackend, MetricPerfBranchMissRate, MetricPerfCacheMissRate,
 	} {
 		id := metricID
 		registry.MustRegister(id, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
