@@ -213,8 +213,10 @@ func hasThrottleObject(items []MetricItem, metricID, objectID string) bool {
 	return false
 }
 
-// readLinuxSystemCounters reads the host-wide cumulative interrupt and context
-// switch counters from /proc/stat. Rates are intentionally not calculated here.
+// readLinuxSystemCounters reads host-wide cumulative counters and scheduler
+// gauges from /proc/stat. The Linux "processes" field counts tasks created
+// since boot (including clone-created tasks); procs_running and procs_blocked
+// are instantaneous task counts. Rates are intentionally not calculated here.
 func readLinuxSystemCounters(ctx context.Context, procStatPath string) ([]MetricItem, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -273,7 +275,7 @@ func readLinuxSystemCounters(ctx context.Context, procStatPath string) ([]Metric
 		}
 	}
 	if len(items) == 0 {
-		return nil, errors.Join(ErrMetricUnsupported, errors.New("/proc/stat does not expose intr or ctxt"))
+		return nil, errors.Join(ErrMetricUnsupported, errors.New("/proc/stat does not expose supported CPU counters"))
 	}
 	return items, nil
 }
