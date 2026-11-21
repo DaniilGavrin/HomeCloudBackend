@@ -81,7 +81,7 @@ func TestNewCPUTargetsAreAccepted(t *testing.T) {
 
 	targets := []string{
 		MetricSoftIRQ, MetricSteal, MetricGuest, MetricGuestNice,
-		MetricCoreTotalUsage, MetricCoreUser, MetricFrequencyTarget,
+		MetricCoreTotalUsage, MetricCoreUser, MetricFrequencyTarget, MetricCoreFrequency,
 		MetricFrequencyCurrent, MetricFrequencyMin, MetricFrequencyMax,
 		MetricFrequencyBase, MetricFrequencyGovernor,
 		MetricCStateTarget, "system.cpu.idle.cstate.c1", MetricThrottlingTarget,
