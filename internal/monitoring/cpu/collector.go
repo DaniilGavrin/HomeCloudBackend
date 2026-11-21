@@ -318,7 +318,14 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 			if err != nil {
 				return nil, err
 			}
-			return metricResult{Value: counterNanoseconds(read(snapshot.Counters)), Unit: "ns", ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
+			if !aggregateAvailable(snapshot) {
+				return nil, fmt.Errorf("aggregate CPU metric unavailable: %s", snapshot.AggregateStatus)
+			}
+			return metricResult{
+				Value: counterNanoseconds(read(snapshot.Counters)), Unit: "ns",
+				ObservedAt: time.Now().UTC().Format(time.RFC3339Nano),
+				Status: StatusValid, SourceID: "gopsutil.cpu.times",
+			}, nil
 		})
 	}
 	registerCounter(MetricUser, func(c Counters) float64 { return c.UserSeconds })
@@ -339,7 +346,7 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 		}
 		return coreUserItems(snapshot.Cores, time.Now().UTC()), nil
 	})
-	registry.MustRegister(MetricTopologyCommand, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+	readTopology := func(ctx context.Context) ([]MetricItem, error) {
 		items, err := readLinuxTopology(ctx, defaultSysfsCPUPath)
 		if err != nil {
 			return nil, err
@@ -347,8 +354,22 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 		now := time.Now().UTC().Format(time.RFC3339Nano)
 		for i := range items {
 			items[i].ObservedAt = now
+			if items[i].Status == "" {
+				items[i].Status = StatusValid
+			}
+			if items[i].SourceID == "" {
+				items[i].SourceID = "linux.sysfs.cpu"
+			}
 		}
 		return items, nil
+	}
+	registry.MustRegister(MetricTopologyCommand, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+		return readTopology(ctx)
+	})
+	// D.6 retains the public command alias "system.cpu.info"; topology.* remains
+	// the canonical metric namespace used by section 17 and the Metric Registry.
+	registry.MustRegister("system.cpu.info", func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+		return readTopology(ctx)
 	})
 
 	registerFrequencyCommand := func(metricID string) {
@@ -368,13 +389,30 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 			return filtered, nil
 		})
 	}
+	registry.MustRegister(MetricFrequencyTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+		items, err := readLinuxFrequency(ctx, defaultSysfsCPUPath)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		for i := range items {
+			items[i].ObservedAt = now
+			if items[i].Status == "" {
+				items[i].Status = StatusValid
+			}
+			if items[i].SourceID == "" {
+				items[i].SourceID = "linux.sysfs.cpufreq"
+			}
+		}
+		return items, nil
+	})
 	registerFrequencyCommand(MetricFrequencyCurrent)
 	registerFrequencyCommand(MetricFrequencyMin)
 	registerFrequencyCommand(MetricFrequencyMax)
 	registerFrequencyCommand(MetricFrequencyBase)
 	registerFrequencyCommand(MetricFrequencyGovernor)
 
-	registry.MustRegister(MetricCoreTotalUsage, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+	readCoreUsage := func(ctx context.Context, msg commands.Inbound) ([]MetricItem, error) {
 		window := DefaultWindow
 		if len(msg.Data) > 0 {
 			var params struct {
@@ -401,9 +439,28 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 		if err != nil {
 			return nil, err
 		}
-		return coreTotalUsageItems(before.Cores, after.Cores, time.Now().UTC()), nil
+		items := coreTotalUsageItems(before.Cores, after.Cores, time.Now().UTC())
+		if len(items) == 0 {
+			return []MetricItem{statusItem(MetricCoreTotalUsage, "", StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", time.Now().UTC())}, nil
+		}
+		return items, nil
+	}
+	registry.MustRegister(MetricCoreTotalUsage, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+		return readCoreUsage(ctx, msg)
+	})
+	// Backward-compatible command alias from the D.6 command registry.
+	registry.MustRegister("system.cpu.core.usage", func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+		return readCoreUsage(ctx, msg)
 	})
 	registerExtendedCommands(registry, collector)
+}
+
+func metricResultFromItem(item MetricItem) metricResult {
+	return metricResult{
+		Value: item.Value, Unit: item.Unit, ObservedAt: item.ObservedAt,
+		Status: item.Status, Reason: item.Reason, ErrorCode: item.ErrorCode,
+		SourceID: item.SourceID, WindowMS: item.WindowMS,
+	}
 }
 
 func registerExtendedCommands(registry *commands.Registry, collector Collector) {
@@ -434,6 +491,24 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 		}
 		return reader.ReadSystemCounters(ctx)
 	}
+	readPressure := func(ctx context.Context) ([]MetricItem, error) {
+		reader, ok := collector.(interface {
+			ReadPressureMetrics(context.Context) ([]MetricItem, error)
+		})
+		if !ok {
+			return nil, ErrMetricUnsupported
+		}
+		return reader.ReadPressureMetrics(ctx)
+	}
+	readPerf := func(ctx context.Context) ([]MetricItem, error) {
+		reader, ok := collector.(interface {
+			ReadPerfMetrics(context.Context) ([]MetricItem, error)
+		})
+		if !ok {
+			return nil, ErrMetricUnsupported
+		}
+		return reader.ReadPerfMetrics(ctx)
+	}
 
 	registry.MustRegister(MetricCStateTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
 		return readCStates(ctx)
@@ -456,6 +531,12 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 	})
 	registry.MustRegister(MetricThrottlingTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
 		return readThrottling(ctx)
+	})
+	registry.MustRegister(MetricPressureTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+		return readPressure(ctx)
+	})
+	registry.MustRegister(MetricPerfTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+		return readPerf(ctx)
 	})
 
 	for _, metricID := range []string{
@@ -483,7 +564,7 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 
 	for _, metricID := range []string{
 		MetricInterrupts, MetricContextSwitches, MetricForks,
-		MetricProcessesRunning, MetricProcessesBlocked,
+		MetricProcessesRunning, MetricProcessesBlocked, MetricRunQueue,
 	} {
 		id := metricID
 		registry.MustRegister(id, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
@@ -494,6 +575,41 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 			for _, item := range items {
 				if item.MetricID == id {
 					return metricResult{Value: item.Value, Unit: item.Unit, ObservedAt: item.ObservedAt}, nil
+				}
+			}
+			return nil, ErrMetricUnsupported
+		})
+	}
+	for _, metricID := range []string{MetricPressureSome, MetricPressureFull} {
+		id := metricID
+		registry.MustRegister(id, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+			items, err := readPressure(ctx)
+			if err != nil {
+				return nil, err
+			}
+			for _, item := range items {
+				if item.MetricID == id {
+					return metricResultFromItem(item), nil
+				}
+			}
+			return nil, ErrMetricUnsupported
+		})
+	}
+	for _, metricID := range []string{
+		MetricPerfCycles, MetricPerfRefCycles, MetricPerfInstructions, MetricPerfIPC,
+		MetricPerfBranches, MetricPerfBranchMisses, MetricPerfCacheReferences,
+		MetricPerfCacheMisses, MetricPerfBusCycles, MetricPerfStalledFrontend,
+		MetricPerfStalledBackend,
+	} {
+		id := metricID
+		registry.MustRegister(id, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+			items, err := readPerf(ctx)
+			if err != nil {
+				return nil, err
+			}
+			for _, item := range items {
+				if item.MetricID == id {
+					return metricResultFromItem(item), nil
 				}
 			}
 			return nil, ErrMetricUnsupported
