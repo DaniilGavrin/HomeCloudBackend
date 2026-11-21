@@ -146,9 +146,11 @@ func CheckStart(c *Config, root string) error {
 	if c.DBServer.SQLite.JournalMode != "WAL" && c.DBServer.SQLite.JournalMode != "DELETE" {
 		return errors.New("SQLite journal_mode: WAL или DELETE")
 	}
-	if c.Logging.LogSecrets || c.Logging.LogMessagePayloads {
-		return errors.New("logging: логирование секретов и payload не поддерживается по соображениям безопасности")
+	if c.Logging.LogSecrets {
+		return errors.New("logging.log_secrets: логирование секретов запрещено по соображениям безопасности")
 	}
+	// WebSocket payload tracing is allowed: traceWSMessage recursively redacts
+	// credential-like fields before logging. Raw secrets are never logged.
 	if c.Logging.Output != "stdout" {
 		return errors.New("logging.output: поддерживается только stdout")
 	}
