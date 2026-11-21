@@ -19,6 +19,7 @@ import (
 	"HomeCloudBackend/internal/events"
 	"HomeCloudBackend/internal/mediagateway"
 	"HomeCloudBackend/internal/mediarooms"
+	cpumonitor "HomeCloudBackend/internal/monitoring/cpu"
 	"HomeCloudBackend/internal/roomcontrol"
 	"HomeCloudBackend/internal/roomheartbeat"
 	"HomeCloudBackend/internal/storage"
@@ -53,6 +54,7 @@ type Server struct {
 	storage        *storage.Manager
 	storageAgents  *storageagent.Registry
 	deviceStore    *devicestore.Store
+	cpuMonitoring  *cpumonitor.Manager
 }
 
 func New(cfg *wsconfig.Config, db *sql.DB, logger *slog.Logger, storageManagers ...*storage.Manager) *Server {
@@ -62,6 +64,9 @@ func New(cfg *wsconfig.Config, db *sql.DB, logger *slog.Logger, storageManagers 
 		events:   events.New(),
 		gateways: mediagateway.New(), rooms: mediarooms.New(4), heartbeats: roomheartbeat.New(), mediaControls: roomcontrol.New(), heartbeatStop: make(chan struct{})}
 	s.storageAgents = storageagent.New()
+	cpuCollector := cpumonitor.NewSystemCollector()
+	s.cpuMonitoring = cpumonitor.NewManager(cpuCollector, func() string { return s.localNodeID })
+	cpumonitor.RegisterCommands(s.registry, cpuCollector)
 	// The device registry shares the primary SQLite database. Keep it optional
 	// for isolated WebSocket tests and embedders that construct a server without DB.
 	if db != nil {
@@ -243,6 +248,7 @@ func (s *Server) PublishEvent(ctx context.Context, topic string, payload any) (e
 
 func (s *Server) CloseAll() {
 	s.heartbeatClose.Do(func() { close(s.heartbeatStop) })
+	s.cpuMonitoring.Close()
 	s.heartbeats.Close()
 	s.streams.CloseAll()
 	if s.storage != nil {
@@ -362,6 +368,7 @@ func (s *Server) Handle(w http.ResponseWriter, r *http.Request) {
 		// Cancel all ongoing streams when the control connection disappears.
 		s.streams.CancelDevice(peer.DeviceID)
 		// Remove only this session's subscriptions before releasing its ID.
+		s.cpuMonitoring.DetachSession(peer.ConnectedAt.UnixNano())
 		s.events.Detach(subscriber)
 		s.gateways.Unregister(peer.DeviceID, peer.ConnectedAt.UnixNano())
 		s.storageAgents.Disconnect(peer.DeviceID, peer.ConnectedAt.UnixNano())
@@ -450,6 +457,7 @@ func (s *Server) Handle(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		response := Outbound{V: 1, ID: m.ID}
+		var afterWrite func()
 		switch {
 		case m.Type == "ping":
 			response.Type = "pong"
@@ -471,6 +479,12 @@ func (s *Server) Handle(w http.ResponseWriter, r *http.Request) {
 				response.Type = "unsubscribed"
 				response.Data = map[string]any{"topic": m.Topic}
 			}
+		case m.Type == "command.request":
+			response = s.handleMonitoringCommand(ctx, m, peer, ip, subscriber)
+		case m.Type == "subscription.create":
+			response, afterWrite = s.handleSubscriptionCreate(m, peer)
+		case m.Type == "subscription.cancel":
+			response = s.handleSubscriptionCancel(m, peer)
 		case m.Type == "command":
 			subs := make(map[string]struct{})
 			for _, topic := range s.events.Topics(subscriber) {
@@ -490,6 +504,9 @@ func (s *Server) Handle(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := write(response); err != nil && !errors.Is(err, context.Canceled) {
 			return
+		}
+		if afterWrite != nil {
+			afterWrite()
 		}
 	}
 }
