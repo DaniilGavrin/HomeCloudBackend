@@ -58,7 +58,9 @@ func NewManager(collector Collector, nodeID func() string) *Manager {
 
 func validTarget(target string) bool {
 	switch target {
-	case Target, MetricTotalUsage, MetricUser, MetricSystem, MetricNice, MetricIdle, MetricIOWait, MetricIRQ:
+	case Target, MetricTotalUsage, MetricUser, MetricSystem, MetricNice, MetricIdle,
+		MetricIOWait, MetricIRQ, MetricSoftIRQ, MetricSteal, MetricGuest, MetricGuestNice,
+		MetricCoreTotalUsage, MetricCoreUser:
 		return true
 	default:
 		return false
@@ -193,7 +195,7 @@ func (m *Manager) run(ctx context.Context) {
 	ticker := time.NewTicker(EffectiveInterval)
 	defer ticker.Stop()
 
-	var previous *Counters
+	var previous *Snapshot
 	lastCollectionFailed := false
 	for {
 		select {
@@ -206,6 +208,7 @@ func (m *Manager) run(ctx context.Context) {
 			}
 			current, err := m.collector.Read(ctx)
 			if err != nil {
+				previous = nil
 				m.publishCollectionError(ctx, err, &lastCollectionFailed)
 				continue
 			}
@@ -235,25 +238,35 @@ func (m *Manager) run(ctx context.Context) {
 
 type MetricItem struct {
 	MetricID string `json:"metric_id"`
+	ObjectID string `json:"object_id,omitempty"`
 	Value any `json:"value"`
 	Unit string `json:"unit"`
 	ObservedAt string `json:"observed_at"`
 }
 
-func itemsFor(current Counters, previous *Counters, observedAt time.Time) []MetricItem {
+func itemsFor(current Snapshot, previous *Snapshot, observedAt time.Time) []MetricItem {
 	timestamp := observedAt.Format(time.RFC3339Nano)
+	c := current.Counters
 	items := []MetricItem{
-		{MetricID: MetricUser, Value: counterNanoseconds(current.UserSeconds), Unit: "ns", ObservedAt: timestamp},
-		{MetricID: MetricSystem, Value: counterNanoseconds(current.SystemSeconds), Unit: "ns", ObservedAt: timestamp},
-		{MetricID: MetricNice, Value: counterNanoseconds(current.NiceSeconds), Unit: "ns", ObservedAt: timestamp},
-		{MetricID: MetricIdle, Value: counterNanoseconds(current.IdleSeconds), Unit: "ns", ObservedAt: timestamp},
-		{MetricID: MetricIOWait, Value: counterNanoseconds(current.IOWaitSeconds), Unit: "ns", ObservedAt: timestamp},
-		{MetricID: MetricIRQ, Value: counterNanoseconds(current.IRQSeconds), Unit: "ns", ObservedAt: timestamp},
+		{MetricID: MetricUser, Value: counterNanoseconds(c.UserSeconds), Unit: "ns", ObservedAt: timestamp},
+		{MetricID: MetricSystem, Value: counterNanoseconds(c.SystemSeconds), Unit: "ns", ObservedAt: timestamp},
+		{MetricID: MetricNice, Value: counterNanoseconds(c.NiceSeconds), Unit: "ns", ObservedAt: timestamp},
+		{MetricID: MetricIdle, Value: counterNanoseconds(c.IdleSeconds), Unit: "ns", ObservedAt: timestamp},
+		{MetricID: MetricIOWait, Value: counterNanoseconds(c.IOWaitSeconds), Unit: "ns", ObservedAt: timestamp},
+		{MetricID: MetricIRQ, Value: counterNanoseconds(c.IRQSeconds), Unit: "ns", ObservedAt: timestamp},
+		{MetricID: MetricSoftIRQ, Value: counterNanoseconds(c.SoftIRQSeconds), Unit: "ns", ObservedAt: timestamp},
+		{MetricID: MetricSteal, Value: counterNanoseconds(c.StealSeconds), Unit: "ns", ObservedAt: timestamp},
+		{MetricID: MetricGuest, Value: counterNanoseconds(c.GuestSeconds), Unit: "ns", ObservedAt: timestamp},
+		{MetricID: MetricGuestNice, Value: counterNanoseconds(c.GuestNiceSeconds), Unit: "ns", ObservedAt: timestamp},
 	}
 	if previous != nil {
-		if value, ok := CalculateTotalUsage(*previous, current); ok {
+		if value, ok := CalculateTotalUsage(previous.Counters, c); ok {
 			items = append([]MetricItem{{MetricID: MetricTotalUsage, Value: value, Unit: "percent", ObservedAt: timestamp}}, items...)
 		}
+	}
+	items = append(items, coreUserItems(current.Cores, observedAt)...)
+	if previous != nil {
+		items = append(items, coreTotalUsageItems(previous.Cores, current.Cores, observedAt)...)
 	}
 	return items
 }
@@ -269,7 +282,6 @@ func (m *Manager) publish(ctx context.Context, items []MetricItem) {
 			for _, item := range items {
 				if item.MetricID == sub.target {
 					filtered = append(filtered, item)
-					break
 				}
 			}
 		}
