@@ -69,8 +69,7 @@ func validTarget(target string) bool {
 		MetricThrottleThermalPackageEvents, MetricThrottleThermalPackageDuration:
 		return true
 	default:
-		return strings.HasPrefix(target, MetricCStateTarget+".") ||
-			strings.HasPrefix(target, MetricThrottlingTarget+".")
+		return strings.HasPrefix(target, MetricCStateTarget+".")
 	}
 }
 
