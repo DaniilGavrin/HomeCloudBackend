@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
 	"HomeCloudBackend/internal/commands"
@@ -89,22 +88,11 @@ func (s *Server) handleMonitoringCommand(ctx context.Context, message Inbound, p
 		SessionID: peer.ConnectedAt.UnixNano(), Subscriptions: subs,
 	})
 	if result.Type != "result" {
-		code, category, retryable := "COMMAND_FAILED", "source", true
-		switch {
-		case result.Error == "unknown or unsupported action":
-			code, category, retryable = "COMMAND_NOT_FOUND", "command", false
-		case strings.Contains(result.Error, cpumonitor.ErrMetricUnsupported.Error()):
-			code, category, retryable = "METRIC_UNSUPPORTED", "capability", false
-		case strings.Contains(strings.ToLower(result.Error), "permission denied"):
-			code, category, retryable = "SOURCE_PERMISSION_DENIED", "access", false
-		case strings.Contains(strings.ToLower(result.Error), "deadline exceeded"):
-			code, category, retryable = "SOURCE_TIMEOUT", "timeout", true
-		case strings.Contains(strings.ToLower(result.Error), "invalid command params"):
-			code, category, retryable = "SOURCE_INVALID_DATA", "validation", false
-		case strings.Contains(strings.ToLower(result.Error), "context canceled"):
-			code, category, retryable = "REQUEST_CANCELLED", "cancellation", false
+		code, category := result.ErrorCode, result.ErrorCategory
+		if code == "" {
+			code, category = "PROVIDER_FAILURE", "execution"
 		}
-		return s.commandError(message.CorrelationID, payload.CommandID, code, category, result.Error, retryable)
+		return s.commandError(message.CorrelationID, payload.CommandID, code, category, result.Error, result.Retryable)
 	}
 
 	encoded, err := json.Marshal(result.Data)
