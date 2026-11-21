@@ -100,7 +100,7 @@ func validTarget(target string) bool {
 	switch target {
 	case Target, MetricTotalUsage, MetricUser, MetricSystem, MetricNice, MetricIdle,
 		MetricIOWait, MetricIRQ, MetricSoftIRQ, MetricSteal, MetricGuest, MetricGuestNice,
-		MetricCoreTotalUsage, MetricCoreUser, MetricCoreUsage, MetricFrequencyTarget, MetricCoreFrequency,
+		MetricCoreTotalUsage, MetricCoreUser, MetricCoreUsage, MetricFrequencyTarget, MetricCoreFrequency, MetricTemperature,
 		MetricFrequencyCurrent, MetricFrequencyMin, MetricFrequencyMax,
 		MetricFrequencyBase, MetricFrequencyGovernor,
 		MetricCStateTarget, MetricThrottlingTarget, MetricInterrupts, MetricContextSwitches,
@@ -256,6 +256,10 @@ func isPressureTarget(target string) bool {
 	return target == MetricPressureTarget || strings.HasPrefix(target, MetricPressureTarget+".")
 }
 
+func isTemperatureTarget(target string) bool {
+	return target == MetricTemperature
+}
+
 func isPerfTarget(target string) bool {
 	return target == MetricPerfTarget || strings.HasPrefix(target, MetricPerfTarget+".")
 }
@@ -283,7 +287,7 @@ func (m *Manager) hasCPUSubscribers() bool {
 	return m.hasMatchingTarget(func(target string) bool {
 		return target == Target || (!isFrequencyTarget(target) &&
 			!isCStateTarget(target) && !isThrottlingTarget(target) && !isSystemCounterTarget(target) &&
-			!isPressureTarget(target) && !isPerfTarget(target))
+			!isPressureTarget(target) && !isPerfTarget(target) && !isTemperatureTarget(target))
 	})
 }
 
@@ -314,6 +318,12 @@ func (m *Manager) hasSystemCounterSubscribers() bool {
 func (m *Manager) hasPressureSubscribers() bool {
 	return m.hasMatchingTarget(func(target string) bool {
 		return target == Target || isPressureTarget(target)
+	})
+}
+
+func (m *Manager) hasTemperatureSubscribers() bool {
+	return m.hasMatchingTarget(func(target string) bool {
+		return target == Target || isTemperatureTarget(target)
 	})
 }
 
@@ -394,6 +404,7 @@ func (m *Manager) run(ctx context.Context) {
 	lastThrottlingFailed := false
 	lastSystemCountersFailed := false
 	lastPressureFailed := false
+	lastTemperatureFailed := false
 	lastPerfFailed := false
 	for {
 		select {
@@ -406,6 +417,7 @@ func (m *Manager) run(ctx context.Context) {
 			lastThrottlingFailed = false
 			lastSystemCountersFailed = false
 			lastPressureFailed = false
+			lastTemperatureFailed = false
 			lastPerfFailed = false
 			if !m.hasSubscribers() {
 				previous = nil
@@ -414,6 +426,7 @@ func (m *Manager) run(ctx context.Context) {
 				lastThrottlingFailed = false
 				lastSystemCountersFailed = false
 				lastPressureFailed = false
+				lastTemperatureFailed = false
 				lastPerfFailed = false
 				m.stopPerfReader()
 				continue
@@ -437,6 +450,7 @@ func (m *Manager) run(ctx context.Context) {
 			m.publishThrottling(ctx, &lastThrottlingFailed)
 			m.publishSystemCounters(ctx, &lastSystemCountersFailed)
 			m.publishPressure(ctx, &lastPressureFailed)
+			m.publishTemperature(ctx, &lastTemperatureFailed)
 			m.publishPerf(ctx, &lastPerfFailed)
 		case <-ticker.C:
 			if !m.hasSubscribers() {
@@ -446,6 +460,7 @@ func (m *Manager) run(ctx context.Context) {
 				lastThrottlingFailed = false
 				lastSystemCountersFailed = false
 				lastPressureFailed = false
+				lastTemperatureFailed = false
 				lastPerfFailed = false
 				m.stopPerfReader()
 				continue
@@ -471,6 +486,7 @@ func (m *Manager) run(ctx context.Context) {
 			m.publishThrottling(ctx, &lastThrottlingFailed)
 			m.publishSystemCounters(ctx, &lastSystemCountersFailed)
 			m.publishPressure(ctx, &lastPressureFailed)
+			m.publishTemperature(ctx, &lastTemperatureFailed)
 			m.publishPerf(ctx, &lastPerfFailed)
 		}
 	}
@@ -626,6 +642,27 @@ func (m *Manager) publishPressure(ctx context.Context, alreadyFailed *bool) {
 	m.publish(ctx, items)
 }
 
+func (m *Manager) publishTemperature(ctx context.Context, alreadyFailed *bool) {
+	if !m.hasTemperatureSubscribers() {
+		*alreadyFailed = false
+		return
+	}
+	reader, ok := m.collector.(interface {
+		ReadTemperatureMetrics(context.Context) ([]MetricItem, error)
+	})
+	if !ok {
+		m.publishExtendedError(ctx, MetricTemperature, ErrMetricUnsupported, alreadyFailed)
+		return
+	}
+	items, err := reader.ReadTemperatureMetrics(ctx)
+	if err != nil {
+		m.publishExtendedError(ctx, MetricTemperature, err, alreadyFailed)
+		return
+	}
+	*alreadyFailed = false
+	m.publish(ctx, items)
+}
+
 func (m *Manager) publishPerf(ctx context.Context, alreadyFailed *bool) {
 	if !m.hasPerfSubscribers() {
 		m.stopPerfReader()
@@ -677,7 +714,7 @@ func (m *Manager) publishExtendedError(ctx context.Context, target string, cause
 	for _, sub := range m.snapshot() {
 		matches := false
 		switch target {
-		case MetricCStateTarget, MetricThrottlingTarget, MetricPressureTarget, MetricPerfTarget:
+		case MetricCStateTarget, MetricThrottlingTarget, MetricPressureTarget, MetricPerfTarget, MetricTemperature:
 			matches = sub.target == target || strings.HasPrefix(sub.target, target+".")
 		case "system.cpu":
 			matches = isSystemCounterTarget(sub.target)
@@ -762,7 +799,7 @@ func (m *Manager) publishCollectionError(ctx context.Context, cause error, alrea
 	for _, sub := range m.snapshot() {
 		if isFrequencyTarget(sub.target) || isCStateTarget(sub.target) ||
 			isThrottlingTarget(sub.target) || isSystemCounterTarget(sub.target) ||
-			isPressureTarget(sub.target) || isPerfTarget(sub.target) {
+			isPressureTarget(sub.target) || isPerfTarget(sub.target) || isTemperatureTarget(sub.target) {
 			continue
 		}
 		nodeID := ""
