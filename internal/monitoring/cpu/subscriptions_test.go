@@ -24,6 +24,13 @@ func (testCollector) TotalUsage(context.Context, time.Duration) (float64, error)
 	return 50, nil
 }
 
+func (testCollector) ReadFrequency(context.Context) ([]MetricItem, error) {
+	return []MetricItem{
+		{MetricID: MetricFrequencyCurrent, ObjectID: "policy0", Value: int64(1800000), Unit: "kHz"},
+		{MetricID: MetricFrequencyGovernor, ObjectID: "policy0", Value: "performance", Unit: "string"},
+	}, nil
+}
+
 func TestSubscriptionLifecycleAndDeduplication(t *testing.T) {
 	manager := NewManager(testCollector{}, func() string { return "node-test" })
 	defer manager.Close()
@@ -122,4 +129,52 @@ func mustRead(t *testing.T, collector Collector) Snapshot {
 		t.Fatal(err)
 	}
 	return snapshot
+}
+
+func TestFrequencyGroupSubscriptionPublishesAllFrequencyMetrics(t *testing.T) {
+	manager := NewManager(testCollector{}, func() string { return "node-test" })
+	defer manager.Close()
+
+	var delivered commands.Outbound
+	deliver := func(_ context.Context, message commands.Outbound) error {
+		delivered = message
+		return nil
+	}
+	if _, err := manager.Subscribe(1, MetricFrequencyTarget, EffectiveInterval, deliver); err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	manager.publishFrequency(context.Background())
+
+	payload, ok := delivered.Payload.(map[string]any)
+	if !ok {
+		t.Fatalf("payload type = %T, want map", delivered.Payload)
+	}
+	items, ok := payload["items"].([]MetricItem)
+	if !ok || len(items) != 2 {
+		t.Fatalf("frequency items = %#v, want 2 metrics", payload["items"])
+	}
+	if items[0].ObjectID != "policy0" || items[0].ObservedAt == "" {
+		t.Fatalf("frequency item missing policy object or timestamp: %#v", items[0])
+	}
+}
+
+func TestIndividualFrequencySubscriptionFiltersMetrics(t *testing.T) {
+	manager := NewManager(testCollector{}, func() string { return "node-test" })
+	defer manager.Close()
+
+	var delivered commands.Outbound
+	deliver := func(_ context.Context, message commands.Outbound) error {
+		delivered = message
+		return nil
+	}
+	if _, err := manager.Subscribe(1, MetricFrequencyGovernor, EffectiveInterval, deliver); err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	manager.publishFrequency(context.Background())
+
+	payload := delivered.Payload.(map[string]any)
+	items := payload["items"].([]MetricItem)
+	if len(items) != 1 || items[0].MetricID != MetricFrequencyGovernor {
+		t.Fatalf("individual frequency items = %#v, want governor only", items)
+	}
 }
