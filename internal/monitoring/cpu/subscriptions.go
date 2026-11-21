@@ -36,6 +36,24 @@ const (
 	MetricPerfStalledBackend = "system.cpu.perf.stalled_cycles_backend"
 	MetricPerfBranchMissRate = "system.cpu.perf.branch_miss_rate"
 	MetricPerfCacheMissRate = "system.cpu.perf.cache_miss_rate"
+	MetricPerfL1DReadAccess = "system.cpu.perf.cache.l1d.read_access"
+	MetricPerfL1DReadMiss = "system.cpu.perf.cache.l1d.read_miss"
+	MetricPerfL1IReadAccess = "system.cpu.perf.cache.l1i.read_access"
+	MetricPerfL1IReadMiss = "system.cpu.perf.cache.l1i.read_miss"
+	MetricPerfL2ReadAccess = "system.cpu.perf.cache.l2.read_access"
+	MetricPerfL2ReadMiss = "system.cpu.perf.cache.l2.read_miss"
+	MetricPerfLLCReadAccess = "system.cpu.perf.cache.llc.read_access"
+	MetricPerfLLCReadMiss = "system.cpu.perf.cache.llc.read_miss"
+	MetricPerfDTLBReadAccess = "system.cpu.perf.tlb.dtlb.read_access"
+	MetricPerfDTLBReadMiss = "system.cpu.perf.tlb.dtlb.read_miss"
+	MetricPerfITLBReadAccess = "system.cpu.perf.tlb.itlb.read_access"
+	MetricPerfITLBReadMiss = "system.cpu.perf.tlb.itlb.read_miss"
+	MetricPerfL1DReadMissRate = "system.cpu.perf.cache.l1d.read_miss_rate"
+	MetricPerfL1IReadMissRate = "system.cpu.perf.cache.l1i.read_miss_rate"
+	MetricPerfL2ReadMissRate = "system.cpu.perf.cache.l2.read_miss_rate"
+	MetricPerfLLCReadMissRate = "system.cpu.perf.cache.llc.read_miss_rate"
+	MetricPerfDTLBReadMissRate = "system.cpu.perf.tlb.dtlb.read_miss_rate"
+	MetricPerfITLBReadMissRate = "system.cpu.perf.tlb.itlb.read_miss_rate"
 )
 
 var (
@@ -92,7 +110,12 @@ func validTarget(target string) bool {
 		MetricPerfTarget, MetricPerfCycles, MetricPerfRefCycles, MetricPerfInstructions,
 		MetricPerfIPC, MetricPerfBranches, MetricPerfBranchMisses, MetricPerfCacheReferences,
 		MetricPerfCacheMisses, MetricPerfBusCycles, MetricPerfStalledFrontend, MetricPerfStalledBackend,
-		MetricPerfBranchMissRate, MetricPerfCacheMissRate:
+		MetricPerfBranchMissRate, MetricPerfCacheMissRate,
+		MetricPerfL1DReadAccess, MetricPerfL1DReadMiss, MetricPerfL1IReadAccess, MetricPerfL1IReadMiss,
+		MetricPerfL2ReadAccess, MetricPerfL2ReadMiss, MetricPerfLLCReadAccess, MetricPerfLLCReadMiss,
+		MetricPerfDTLBReadAccess, MetricPerfDTLBReadMiss, MetricPerfITLBReadAccess, MetricPerfITLBReadMiss,
+		MetricPerfL1DReadMissRate, MetricPerfL1IReadMissRate, MetricPerfL2ReadMissRate,
+		MetricPerfLLCReadMissRate, MetricPerfDTLBReadMissRate, MetricPerfITLBReadMissRate:
 		return true
 	default:
 		return strings.HasPrefix(target, MetricCStateTarget+".") ||
