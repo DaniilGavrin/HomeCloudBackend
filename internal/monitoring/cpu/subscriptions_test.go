@@ -185,6 +185,9 @@ func (extendedTestCollector) ReadSystemCounters(context.Context) ([]MetricItem, 
 	return []MetricItem{
 		{MetricID: MetricInterrupts, Value: uint64(100), Unit: "count"},
 		{MetricID: MetricContextSwitches, Value: uint64(200), Unit: "count"},
+		{MetricID: MetricForks, Value: uint64(300), Unit: "count"},
+		{MetricID: MetricProcessesRunning, Value: uint64(4), Unit: "count"},
+		{MetricID: MetricProcessesBlocked, Value: uint64(2), Unit: "count"},
 	}, nil
 }
 
@@ -214,6 +217,21 @@ func TestExtendedCPUSubscriptionsPublishAndFilterMetrics(t *testing.T) {
 			name: "context switches", target: MetricContextSwitches,
 			publish: func(m *Manager, failed *bool) { m.publishSystemCounters(context.Background(), failed) },
 			wantMetric: MetricContextSwitches,
+		},
+		{
+			name: "forks", target: MetricForks,
+			publish: func(m *Manager, failed *bool) { m.publishSystemCounters(context.Background(), failed) },
+			wantMetric: MetricForks,
+		},
+		{
+			name: "running processes", target: MetricProcessesRunning,
+			publish: func(m *Manager, failed *bool) { m.publishSystemCounters(context.Background(), failed) },
+			wantMetric: MetricProcessesRunning,
+		},
+		{
+			name: "blocked processes", target: MetricProcessesBlocked,
+			publish: func(m *Manager, failed *bool) { m.publishSystemCounters(context.Background(), failed) },
+			wantMetric: MetricProcessesBlocked,
 		},
 	}
 	for _, test := range tests {
