@@ -373,6 +373,8 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 		MetricThrottleThermalCoreDuration,
 		MetricThrottleThermalPackageEvents,
 		MetricThrottleThermalPackageDuration,
+		MetricThrottlePowerCoreEvents,
+		MetricThrottlePowerPackageEvents,
 	} {
 		id := metricID
 		registry.MustRegister(id, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
