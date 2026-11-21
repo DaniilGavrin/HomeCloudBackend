@@ -52,6 +52,8 @@ const (
 	MetricThrottleThermalCoreDuration = "system.cpu.throttling.thermal.core.duration"
 	MetricThrottleThermalPackageEvents = "system.cpu.throttling.thermal.package.events"
 	MetricThrottleThermalPackageDuration = "system.cpu.throttling.thermal.package.duration"
+	MetricThrottlePowerCoreEvents = "system.cpu.throttling.power.core.events"
+	MetricThrottlePowerPackageEvents = "system.cpu.throttling.power.package.events"
 	MetricInterrupts = "system.cpu.interrupts"
 	MetricContextSwitches = "system.cpu.context_switches"
 )
