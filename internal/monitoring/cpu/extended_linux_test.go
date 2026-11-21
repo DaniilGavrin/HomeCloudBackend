@@ -2,7 +2,6 @@ package cpu
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
