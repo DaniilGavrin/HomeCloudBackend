@@ -34,7 +34,7 @@ func readLinuxCPUPressure(ctx context.Context, path string) ([]MetricItem, error
 		}
 		return []MetricItem{
 			statusItem(MetricPressureSome, "", status, reason, code, "linux.proc.pressure.cpu", now),
-			statusItem(MetricPressureFull, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "linux.proc.pressure.cpu", now),
+			statusItem(MetricPressureFull, "", status, reason, code, "linux.proc.pressure.cpu", now),
 		}, nil
 	}
 	defer data.Close()
