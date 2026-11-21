@@ -63,10 +63,14 @@ func validTarget(target string) bool {
 		MetricIOWait, MetricIRQ, MetricSoftIRQ, MetricSteal, MetricGuest, MetricGuestNice,
 		MetricCoreTotalUsage, MetricCoreUser, MetricFrequencyTarget,
 		MetricFrequencyCurrent, MetricFrequencyMin, MetricFrequencyMax,
-		MetricFrequencyBase, MetricFrequencyGovernor:
+		MetricFrequencyBase, MetricFrequencyGovernor,
+		MetricCStateTarget, MetricThrottlingTarget, MetricInterrupts, MetricContextSwitches,
+		MetricThrottleThermalCoreEvents, MetricThrottleThermalCoreDuration,
+		MetricThrottleThermalPackageEvents, MetricThrottleThermalPackageDuration:
 		return true
 	default:
-		return false
+		return strings.HasPrefix(target, MetricCStateTarget+".") ||
+			strings.HasPrefix(target, MetricThrottlingTarget+".")
 	}
 }
 
@@ -187,22 +191,56 @@ func isFrequencyTarget(target string) bool {
 	return target == MetricFrequencyTarget || strings.HasPrefix(target, MetricFrequencyTarget+".")
 }
 
-func (m *Manager) hasCPUSubscribers() bool {
+func isCStateTarget(target string) bool {
+	return target == MetricCStateTarget || strings.HasPrefix(target, MetricCStateTarget+".")
+}
+
+func isThrottlingTarget(target string) bool {
+	return target == MetricThrottlingTarget || strings.HasPrefix(target, MetricThrottlingTarget+".")
+}
+
+func isSystemCounterTarget(target string) bool {
+	return target == MetricInterrupts || target == MetricContextSwitches
+}
+
+func (m *Manager) hasMatchingTarget(match func(string) bool) bool {
 	for _, sub := range m.snapshot() {
-		if sub.target == Target || !isFrequencyTarget(sub.target) {
+		if match(sub.target) {
 			return true
 		}
 	}
 	return false
 }
 
+func (m *Manager) hasCPUSubscribers() bool {
+	return m.hasMatchingTarget(func(target string) bool {
+		return target == Target || (!isFrequencyTarget(target) &&
+			!isCStateTarget(target) && !isThrottlingTarget(target) && !isSystemCounterTarget(target))
+	})
+}
+
 func (m *Manager) hasFrequencySubscribers() bool {
-	for _, sub := range m.snapshot() {
-		if sub.target == Target || isFrequencyTarget(sub.target) {
-			return true
-		}
-	}
-	return false
+	return m.hasMatchingTarget(func(target string) bool {
+		return target == Target || isFrequencyTarget(target)
+	})
+}
+
+func (m *Manager) hasCStateSubscribers() bool {
+	return m.hasMatchingTarget(func(target string) bool {
+		return target == Target || isCStateTarget(target)
+	})
+}
+
+func (m *Manager) hasThrottlingSubscribers() bool {
+	return m.hasMatchingTarget(func(target string) bool {
+		return target == Target || isThrottlingTarget(target)
+	})
+}
+
+func (m *Manager) hasSystemCounterSubscribers() bool {
+	return m.hasMatchingTarget(func(target string) bool {
+		return target == Target || isSystemCounterTarget(target)
+	})
 }
 
 func (m *Manager) publishFrequency(ctx context.Context) {
@@ -270,6 +308,9 @@ func (m *Manager) run(ctx context.Context) {
 
 	var previous *Snapshot
 	lastCollectionFailed := false
+	lastCStateFailed := false
+	lastThrottlingFailed := false
+	lastSystemCountersFailed := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -277,6 +318,10 @@ func (m *Manager) run(ctx context.Context) {
 		case <-m.wake:
 			if !m.hasSubscribers() {
 				previous = nil
+				lastCollectionFailed = false
+				lastCStateFailed = false
+				lastThrottlingFailed = false
+				lastSystemCountersFailed = false
 				continue
 			}
 			if m.hasCPUSubscribers() {
@@ -294,10 +339,16 @@ func (m *Manager) run(ctx context.Context) {
 				lastCollectionFailed = false
 			}
 			m.publishFrequency(ctx)
+			m.publishCStates(ctx, &lastCStateFailed)
+			m.publishThrottling(ctx, &lastThrottlingFailed)
+			m.publishSystemCounters(ctx, &lastSystemCountersFailed)
 		case <-ticker.C:
 			if !m.hasSubscribers() {
 				previous = nil
 				lastCollectionFailed = false
+				lastCStateFailed = false
+				lastThrottlingFailed = false
+				lastSystemCountersFailed = false
 				continue
 			}
 			if m.hasCPUSubscribers() {
@@ -317,6 +368,9 @@ func (m *Manager) run(ctx context.Context) {
 				lastCollectionFailed = false
 			}
 			m.publishFrequency(ctx)
+			m.publishCStates(ctx, &lastCStateFailed)
+			m.publishThrottling(ctx, &lastThrottlingFailed)
+			m.publishSystemCounters(ctx, &lastSystemCountersFailed)
 		}
 	}
 }
@@ -356,6 +410,109 @@ func itemsFor(current Snapshot, previous *Snapshot, observedAt time.Time) []Metr
 	return items
 }
 
+func (m *Manager) publishCStates(ctx context.Context, alreadyFailed *bool) {
+	if !m.hasCStateSubscribers() {
+		*alreadyFailed = false
+		return
+	}
+	reader, ok := m.collector.(interface {
+		ReadCStates(context.Context) ([]MetricItem, error)
+	})
+	if !ok {
+		m.publishExtendedError(ctx, MetricCStateTarget, ErrMetricUnsupported, alreadyFailed)
+		return
+	}
+	items, err := reader.ReadCStates(ctx)
+	if err != nil {
+		m.publishExtendedError(ctx, MetricCStateTarget, err, alreadyFailed)
+		return
+	}
+	*alreadyFailed = false
+	m.publish(ctx, items)
+}
+
+func (m *Manager) publishThrottling(ctx context.Context, alreadyFailed *bool) {
+	if !m.hasThrottlingSubscribers() {
+		*alreadyFailed = false
+		return
+	}
+	reader, ok := m.collector.(interface {
+		ReadThrottling(context.Context) ([]MetricItem, error)
+	})
+	if !ok {
+		m.publishExtendedError(ctx, MetricThrottlingTarget, ErrMetricUnsupported, alreadyFailed)
+		return
+	}
+	items, err := reader.ReadThrottling(ctx)
+	if err != nil {
+		m.publishExtendedError(ctx, MetricThrottlingTarget, err, alreadyFailed)
+		return
+	}
+	*alreadyFailed = false
+	m.publish(ctx, items)
+}
+
+func (m *Manager) publishSystemCounters(ctx context.Context, alreadyFailed *bool) {
+	if !m.hasSystemCounterSubscribers() {
+		*alreadyFailed = false
+		return
+	}
+	reader, ok := m.collector.(interface {
+		ReadSystemCounters(context.Context) ([]MetricItem, error)
+	})
+	if !ok {
+		m.publishExtendedError(ctx, "system.cpu", ErrMetricUnsupported, alreadyFailed)
+		return
+	}
+	items, err := reader.ReadSystemCounters(ctx)
+	if err != nil {
+		m.publishExtendedError(ctx, "system.cpu", err, alreadyFailed)
+		return
+	}
+	*alreadyFailed = false
+	m.publish(ctx, items)
+}
+
+func (m *Manager) publishExtendedError(ctx context.Context, target string, cause error, alreadyFailed *bool) {
+	if *alreadyFailed {
+		return
+	}
+	*alreadyFailed = true
+	code, category, retryable := "METRIC_SOURCE_UNAVAILABLE", "source", true
+	if errors.Is(cause, ErrMetricUnsupported) {
+		code, category, retryable = "METRIC_UNSUPPORTED", "capability", false
+	}
+	for _, sub := range m.snapshot() {
+		matches := false
+		switch target {
+		case MetricCStateTarget, MetricThrottlingTarget:
+			matches = sub.target == target || strings.HasPrefix(sub.target, target+".")
+		case "system.cpu":
+			matches = isSystemCounterTarget(sub.target)
+		}
+		if !matches {
+			continue
+		}
+		nodeID := ""
+		if m.nodeID != nil {
+			nodeID = m.nodeID()
+		}
+		deliveryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		_ = sub.deliver(deliveryCtx, commands.Outbound{
+			V: 1, Type: "subscription.error", NodeID: nodeID,
+			Payload: map[string]any{
+				"subscription_id": sub.id,
+				"target": sub.target,
+				"error": map[string]any{
+					"code": code, "category": category,
+					"retryable": retryable, "message": cause.Error(),
+				},
+			},
+		})
+		cancel()
+	}
+}
+
 func (m *Manager) publish(ctx context.Context, items []MetricItem) {
 	if len(items) == 0 {
 		return
@@ -365,12 +522,19 @@ func (m *Manager) publish(ctx context.Context, items []MetricItem) {
 		if sub.target != Target {
 			filtered = make([]MetricItem, 0, len(items))
 			for _, item := range items {
-				if sub.target == MetricFrequencyTarget {
+				switch {
+				case sub.target == MetricFrequencyTarget:
 					if strings.HasPrefix(item.MetricID, MetricFrequencyTarget+".") {
 						filtered = append(filtered, item)
 					}
-				} else if item.MetricID == sub.target {
-					filtered = append(filtered, item)
+				case sub.target == MetricCStateTarget, sub.target == MetricThrottlingTarget:
+					if strings.HasPrefix(item.MetricID, sub.target+".") {
+						filtered = append(filtered, item)
+					}
+				default:
+					if item.MetricID == sub.target {
+						filtered = append(filtered, item)
+					}
 				}
 			}
 		}
