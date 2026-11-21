@@ -284,7 +284,7 @@ func counterNanoseconds(seconds float64) int64 {
 }
 
 type metricResult struct {
-	Value       any    `json:"value"`
+	Value       any    `json:"value,omitempty"`
 	Unit        string `json:"unit"`
 	ObservedAt  string `json:"observed_at"`
 	Status      string `json:"status,omitempty"`
