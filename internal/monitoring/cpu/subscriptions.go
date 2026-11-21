@@ -80,7 +80,7 @@ func validTarget(target string) bool {
 	switch target {
 	case Target, MetricTotalUsage, MetricUser, MetricSystem, MetricNice, MetricIdle,
 		MetricIOWait, MetricIRQ, MetricSoftIRQ, MetricSteal, MetricGuest, MetricGuestNice,
-		MetricCoreTotalUsage, MetricCoreUser, MetricFrequencyTarget,
+		MetricCoreTotalUsage, MetricCoreUser, MetricFrequencyTarget, MetricCoreFrequency,
 		MetricFrequencyCurrent, MetricFrequencyMin, MetricFrequencyMax,
 		MetricFrequencyBase, MetricFrequencyGovernor,
 		MetricCStateTarget, MetricThrottlingTarget, MetricInterrupts, MetricContextSwitches,
@@ -216,7 +216,7 @@ func (m *Manager) hasSubscribers() bool {
 }
 
 func isFrequencyTarget(target string) bool {
-	return target == MetricFrequencyTarget || strings.HasPrefix(target, MetricFrequencyTarget+".")
+	return target == MetricFrequencyTarget || target == MetricCoreFrequency || strings.HasPrefix(target, MetricFrequencyTarget+".")
 }
 
 func isCStateTarget(target string) bool {
@@ -680,7 +680,7 @@ func (m *Manager) publish(ctx context.Context, items []MetricItem) {
 			for _, item := range items {
 				switch {
 				case sub.target == MetricFrequencyTarget:
-					if strings.HasPrefix(item.MetricID, MetricFrequencyTarget+".") {
+					if item.MetricID == MetricCoreFrequency || strings.HasPrefix(item.MetricID, MetricFrequencyTarget+".") {
 						filtered = append(filtered, item)
 					}
 				case sub.target == MetricCStateTarget, sub.target == MetricThrottlingTarget,
