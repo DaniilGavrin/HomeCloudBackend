@@ -3,8 +3,8 @@ package cpu
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 )
