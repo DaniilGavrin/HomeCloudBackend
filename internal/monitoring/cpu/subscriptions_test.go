@@ -26,7 +26,7 @@ func (testCollector) TotalUsage(context.Context, time.Duration) (float64, error)
 
 func (testCollector) ReadFrequency(context.Context) ([]MetricItem, error) {
 	return []MetricItem{
-		{MetricID: MetricFrequencyCurrent, ObjectID: "policy0", Value: int64(1800000), Unit: "kHz"},
+		{MetricID: MetricFrequencyCurrent, ObjectID: "policy0", Value: int64(1800000000), Unit: "Hz"},
 		{MetricID: MetricFrequencyGovernor, ObjectID: "policy0", Value: "performance", Unit: "string"},
 	}, nil
 }
