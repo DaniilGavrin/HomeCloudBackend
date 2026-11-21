@@ -45,7 +45,7 @@ func TestReadLinuxCStatesUnsupportedWhenNoResidencySource(t *testing.T) {
 	}
 }
 
-func TestReadLinuxThrottlingDeduplicatesSMTSiblingsAndPackages(t *testing.T) {
+func TestReadLinuxThrottlingPreservesPerCPUCountersAndDeduplicatesPackages(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("Linux thermal throttle sysfs only")
 	}
