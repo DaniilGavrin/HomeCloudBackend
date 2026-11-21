@@ -131,10 +131,14 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 	if err != nil {
 		return []MetricItem{statusItem(MetricThrottlingTarget, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.sysfs.thermal_throttle", now)}, nil
 	}
+	if len(cpuIDs) == 0 {
+		return []MetricItem{statusItem(MetricThrottlingTarget, "", StatusUnsupported, "not_discovered", "SOURCE_UNAVAILABLE", "linux.sysfs.thermal_throttle", now)}, nil
+	}
 	sort.Ints(cpuIDs)
 
-	seenPackages := make(map[string]bool)
-	items := make([]MetricItem, 0, len(cpuIDs)*6)
+	packagePaths := make(map[string]string)
+	packageIDs := make(map[string]bool)
+	items := make([]MetricItem, 0, len(cpuIDs)*3+6)
 	for _, id := range cpuIDs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -147,7 +151,9 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 		packageKnown := packageErr == nil && packageParseErr == nil && packageNumber >= 0
 		if packageKnown {
 			packageID = strconv.Itoa(packageNumber)
+			packageIDs[packageID] = true
 		}
+
 		throttlePath := filepath.Join(cpuPath, "thermal_throttle")
 		if _, statErr := os.Stat(throttlePath); statErr != nil {
 			status, reason, code := classifySourceError(statErr)
@@ -161,21 +167,43 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 			)
 			continue
 		}
-
 		items = append(items,
 			appendThrottleCounter(throttlePath, "core_throttle_count", MetricThrottleThermalCoreEvents, cpuName, "count", 1, now),
 			appendThrottleCounter(throttlePath, "core_throttle_total_time_ms", MetricThrottleThermalCoreDuration, cpuName, "ns", uint64(time.Millisecond), now),
 			appendThrottleCounter(throttlePath, "core_power_limit_count", MetricThrottlePowerCoreEvents, cpuName, "count", 1, now),
 		)
+		if packageKnown {
+			if _, exists := packagePaths[packageID]; !exists {
+				packagePaths[packageID] = throttlePath
+			}
+		}
+	}
 
-		if packageKnown && !seenPackages[packageID] {
-			packageObjectID := "package" + packageID
+	packageKeys := make([]string, 0, len(packageIDs))
+	for packageID := range packageIDs {
+		packageKeys = append(packageKeys, packageID)
+	}
+	sort.Strings(packageKeys)
+	for _, packageID := range packageKeys {
+		objectID := "package" + packageID
+		throttlePath, ok := packagePaths[packageID]
+		if !ok {
 			items = append(items,
-				appendThrottleCounter(throttlePath, "package_throttle_count", MetricThrottleThermalPackageEvents, packageObjectID, "count", 1, now),
-				appendThrottleCounter(throttlePath, "package_throttle_total_time_ms", MetricThrottleThermalPackageDuration, packageObjectID, "ns", uint64(time.Millisecond), now),
-				appendThrottleCounter(throttlePath, "package_power_limit_count", MetricThrottlePowerPackageEvents, packageObjectID, "count", 1, now),
+				statusItem(MetricThrottleThermalPackageEvents, objectID, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.sysfs.thermal_throttle", now),
+				statusItem(MetricThrottleThermalPackageDuration, objectID, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.sysfs.thermal_throttle", now),
+				statusItem(MetricThrottlePowerPackageEvents, objectID, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.sysfs.thermal_throttle", now),
 			)
-			seenPackages[packageID] = true
+			continue
+		}
+		items = append(items,
+			appendThrottleCounter(throttlePath, "package_throttle_count", MetricThrottleThermalPackageEvents, objectID, "count", 1, now),
+			appendThrottleCounter(throttlePath, "package_throttle_total_time_ms", MetricThrottleThermalPackageDuration, objectID, "ns", uint64(time.Millisecond), now),
+			appendThrottleCounter(throttlePath, "package_power_limit_count", MetricThrottlePowerPackageEvents, objectID, "count", 1, now),
+		)
+	}
+	if len(packageKeys) == 0 {
+		for _, metricID := range []string{MetricThrottleThermalPackageEvents, MetricThrottleThermalPackageDuration, MetricThrottlePowerPackageEvents} {
+			items = append(items, statusItem(metricID, "", StatusUnsupported, "package_topology_unavailable", "METRIC_UNSUPPORTED", "linux.sysfs.thermal_throttle", now))
 		}
 	}
 	return items, nil
