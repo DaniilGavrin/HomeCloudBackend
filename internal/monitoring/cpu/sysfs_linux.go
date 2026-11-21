@@ -19,6 +19,7 @@ const (
 	MetricFrequencyMax      = "system.cpu.frequency.max"
 	MetricFrequencyBase     = "system.cpu.frequency.base"
 	MetricFrequencyGovernor = "system.cpu.frequency.governor"
+	MetricFrequencyTarget   = "system.cpu.frequency"
 
 	MetricTopologyCommand       = "system.cpu.topology"
 	MetricTopologyLogicalCount  = "system.cpu.topology.logical_count"
