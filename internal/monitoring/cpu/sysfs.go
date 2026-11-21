@@ -151,31 +151,37 @@ func findMetric(items []MetricItem, metricID, objectID string) (MetricItem, bool
 }
 
 func readLinuxTopology(ctx context.Context, cpuSysfsPath string) ([]MetricItem, error) {
+	now := time.Now().UTC()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if runtime.GOOS != "linux" {
-		return nil, errors.New("CPU topology sysfs provider is supported on Linux only")
+		return []MetricItem{statusItem(MetricTopologyCommand, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "platform.cpu.topology", now)}, nil
 	}
 
 	presentText, err := readSysfsValue(filepath.Join(cpuSysfsPath, "present"))
 	if err != nil {
-		return nil, fmt.Errorf("read present CPU list: %w", err)
+		status, reason, code := classifySourceError(err)
+		return []MetricItem{statusItem(MetricTopologyCommand, "", status, reason, code, "linux.sysfs.cpu", now)}, nil
 	}
 	present, err := parseCPUList(presentText)
 	if err != nil {
-		return nil, fmt.Errorf("parse present CPU list: %w", err)
+		return []MetricItem{statusItem(MetricTopologyCommand, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.sysfs.cpu", now)}, nil
 	}
-	onlineText, err := readSysfsValue(filepath.Join(cpuSysfsPath, "online"))
-	if err != nil {
-		// Some systems expose only the present list. In that case online state
-		// cannot safely be inferred, so return an explicit source error.
-		return nil, fmt.Errorf("read online CPU list: %w", err)
+
+	onlineText, onlineErr := readSysfsValue(filepath.Join(cpuSysfsPath, "online"))
+	var online []int
+	onlineStatus, onlineReason, onlineCode := StatusValid, "", ""
+	onlineAvailable := onlineErr == nil
+	if onlineErr != nil {
+		onlineStatus, onlineReason, onlineCode = classifySourceError(onlineErr)
+	} else if parsed, parseErr := parseCPUList(onlineText); parseErr != nil {
+		onlineAvailable = false
+		onlineStatus, onlineReason, onlineCode = StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA"
+	} else {
+		online = parsed
 	}
-	online, err := parseCPUList(onlineText)
-	if err != nil {
-		return nil, fmt.Errorf("parse online CPU list: %w", err)
-	}
+
 	onlineSet := make(map[int]bool, len(online))
 	for _, id := range online {
 		onlineSet[id] = true
@@ -184,26 +190,39 @@ func readLinuxTopology(ctx context.Context, cpuSysfsPath string) ([]MetricItem, 
 	for _, id := range present {
 		presentSet[id] = true
 	}
-	for _, id := range online {
-		if !presentSet[id] {
-			return nil, fmt.Errorf("online CPU %d is not present", id)
+	if onlineAvailable {
+		for _, id := range online {
+			if !presentSet[id] {
+				onlineAvailable = false
+				onlineStatus, onlineReason, onlineCode = StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA"
+				break
+			}
 		}
 	}
 
 	items := []MetricItem{
-		{MetricID: MetricTopologyLogicalCount, Value: len(present), Unit: "count"},
-		{MetricID: MetricTopologyOnlineCount, Value: len(online), Unit: "count"},
-		{MetricID: MetricTopologyOfflineCount, Value: len(present) - len(online), Unit: "count"},
-		{MetricID: MetricTopologyArchitecture, Value: runtime.GOARCH, Unit: "string"},
+		{MetricID: MetricTopologyLogicalCount, Value: len(present), Unit: "count", ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid, SourceID: "linux.sysfs.cpu"},
+		{MetricID: MetricTopologyArchitecture, Value: runtime.GOARCH, Unit: "string", ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid, SourceID: "runtime"},
+	}
+	if onlineAvailable {
+		items = append(items,
+			MetricItem{MetricID: MetricTopologyOnlineCount, Value: len(online), Unit: "count", ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid, SourceID: "linux.sysfs.cpu"},
+			MetricItem{MetricID: MetricTopologyOfflineCount, Value: len(present)-len(online), Unit: "count", ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid, SourceID: "linux.sysfs.cpu"},
+		)
+	} else {
+		items = append(items,
+			statusItem(MetricTopologyOnlineCount, "", onlineStatus, onlineReason, onlineCode, "linux.sysfs.cpu", now),
+			statusItem(MetricTopologyOfflineCount, "", onlineStatus, onlineReason, onlineCode, "linux.sysfs.cpu", now),
+		)
 	}
 
 	type cpuLocation struct {
-		cpuID    int
-		coreID   string
+		cpuID int
+		coreID string
 		packageID string
-		dieID    string
-		numaID   string
-		online   bool
+		dieID string
+		numaID string
+		online bool
 	}
 	locations := make([]cpuLocation, 0, len(present))
 	cores, packages, dies, numaNodes := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
@@ -217,10 +236,7 @@ func readLinuxTopology(ctx context.Context, cpuSysfsPath string) ([]MetricItem, 
 		packageID, _ := readSysfsValue(filepath.Join(topologyPath, "physical_package_id"))
 		dieID, _ := readSysfsValue(filepath.Join(topologyPath, "die_id"))
 		numaID := findNUMANode(filepath.Join(cpuSysfsPath, cpuName))
-		location := cpuLocation{
-			cpuID: id, coreID: coreID, packageID: packageID, dieID: dieID,
-			numaID: numaID, online: onlineSet[id],
-		}
+		location := cpuLocation{cpuID: id, coreID: coreID, packageID: packageID, dieID: dieID, numaID: numaID, online: onlineSet[id]}
 		locations = append(locations, location)
 		if coreID != "" && packageID != "" {
 			cores[packageID+":"+coreID] = true
@@ -235,30 +251,36 @@ func readLinuxTopology(ctx context.Context, cpuSysfsPath string) ([]MetricItem, 
 			numaNodes[numaID] = true
 		}
 	}
-	if len(cores) > 0 {
-		items = append(items, MetricItem{MetricID: MetricTopologyCoreCount, Value: len(cores), Unit: "count"})
+	appendCount := func(metricID string, count int, available bool) {
+		if available {
+			items = append(items, MetricItem{MetricID: metricID, Value: count, Unit: "count", ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid, SourceID: "linux.sysfs.cpu"})
+		} else {
+			items = append(items, statusItem(metricID, "", StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.sysfs.cpu", now))
+		}
 	}
-	if len(packages) > 0 {
-		items = append(items, MetricItem{MetricID: MetricTopologyPackageCount, Value: len(packages), Unit: "count"})
-	}
-	if len(dies) > 0 {
-		items = append(items, MetricItem{MetricID: MetricTopologyDieCount, Value: len(dies), Unit: "count"})
-	}
-	if len(numaNodes) > 0 {
-		items = append(items, MetricItem{MetricID: MetricTopologyNUMACount, Value: len(numaNodes), Unit: "count"})
-	}
+	appendCount(MetricTopologyCoreCount, len(cores), len(cores) > 0)
+	appendCount(MetricTopologyPackageCount, len(packages), len(packages) > 0)
+	appendCount(MetricTopologyDieCount, len(dies), len(dies) > 0)
+	appendCount(MetricTopologyNUMACount, len(numaNodes), len(numaNodes) > 0)
 
 	for _, location := range locations {
 		objectID := fmt.Sprintf("cpu%d", location.cpuID)
-		items = append(items, MetricItem{MetricID: MetricTopologyOnline, ObjectID: objectID, Value: location.online, Unit: "boolean"})
+		if onlineAvailable {
+			items = append(items, MetricItem{MetricID: MetricTopologyOnline, ObjectID: objectID, Value: location.online, Unit: "boolean", ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid, SourceID: "linux.sysfs.cpu"})
+		} else {
+			items = append(items, statusItem(MetricTopologyOnline, objectID, onlineStatus, onlineReason, onlineCode, "linux.sysfs.cpu", now))
+		}
 		appendID := func(metricID, value string) {
 			if value == "" {
+				items = append(items, statusItem(metricID, objectID, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.sysfs.cpu", now))
 				return
 			}
-			id, err := strconv.Atoi(value)
-			if err == nil && id >= 0 {
-				items = append(items, MetricItem{MetricID: metricID, ObjectID: objectID, Value: id, Unit: "id"})
+			id, parseErr := strconv.Atoi(value)
+			if parseErr != nil || id < 0 {
+				items = append(items, statusItem(metricID, objectID, StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.sysfs.cpu", now))
+				return
 			}
+			items = append(items, MetricItem{MetricID: metricID, ObjectID: objectID, Value: id, Unit: "id", ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid, SourceID: "linux.sysfs.cpu"})
 		}
 		appendID(MetricTopologyCoreID, location.coreID)
 		appendID(MetricTopologyPackageID, location.packageID)
@@ -266,23 +288,42 @@ func readLinuxTopology(ctx context.Context, cpuSysfsPath string) ([]MetricItem, 
 		appendID(MetricTopologyNUMAID, location.numaID)
 	}
 
-	if info, infoErr := gopsutilcpu.InfoWithContext(ctx); infoErr == nil {
+	info, infoErr := gopsutilcpu.InfoWithContext(ctx)
+	if infoErr != nil {
+		status, reason, code := classifySourceError(infoErr)
+		for _, metricID := range []string{MetricTopologyVendor, MetricTopologyModel, MetricTopologyFamily, MetricTopologyModelID, MetricTopologyFeatures, MetricTopologyStepping} {
+			items = append(items, statusItem(metricID, "", status, reason, code, "gopsutil.cpu.info", now))
+		}
+	} else {
+		seenInfo := make(map[string]bool, len(info))
 		for _, cpuInfo := range info {
 			objectID := fmt.Sprintf("cpu%d", cpuInfo.CPU)
+			seenInfo[objectID] = true
 			appendStringMetric := func(metricID, value string) {
-				if strings.TrimSpace(value) != "" {
-					items = append(items, MetricItem{MetricID: metricID, ObjectID: objectID, Value: value, Unit: "string"})
+				if strings.TrimSpace(value) == "" {
+					items = append(items, statusItem(metricID, objectID, StatusUnsupported, "not_present", "METRIC_UNSUPPORTED", "gopsutil.cpu.info", now))
+					return
 				}
+				items = append(items, MetricItem{MetricID: metricID, ObjectID: objectID, Value: value, Unit: "string", ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid, SourceID: "gopsutil.cpu.info"})
 			}
 			appendStringMetric(MetricTopologyVendor, cpuInfo.VendorID)
 			appendStringMetric(MetricTopologyModel, cpuInfo.ModelName)
 			appendStringMetric(MetricTopologyFamily, cpuInfo.Family)
 			appendStringMetric(MetricTopologyModelID, cpuInfo.Model)
 			if len(cpuInfo.Flags) > 0 {
-				items = append(items, MetricItem{MetricID: MetricTopologyFeatures, ObjectID: objectID, Value: cpuInfo.Flags, Unit: "list"})
+				items = append(items, MetricItem{MetricID: MetricTopologyFeatures, ObjectID: objectID, Value: cpuInfo.Flags, Unit: "list", ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid, SourceID: "gopsutil.cpu.info"})
+			} else {
+				items = append(items, statusItem(MetricTopologyFeatures, objectID, StatusUnsupported, "not_present", "METRIC_UNSUPPORTED", "gopsutil.cpu.info", now))
 			}
 			if cpuInfo.Stepping != 0 {
-				items = append(items, MetricItem{MetricID: MetricTopologyStepping, ObjectID: objectID, Value: cpuInfo.Stepping, Unit: "count"})
+				items = append(items, MetricItem{MetricID: MetricTopologyStepping, ObjectID: objectID, Value: cpuInfo.Stepping, Unit: "count", ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid, SourceID: "gopsutil.cpu.info"})
+			} else {
+				items = append(items, statusItem(MetricTopologyStepping, objectID, StatusUnsupported, "not_present", "METRIC_UNSUPPORTED", "gopsutil.cpu.info", now))
+			}
+		}
+		if len(seenInfo) == 0 {
+			for _, metricID := range []string{MetricTopologyVendor, MetricTopologyModel, MetricTopologyFamily, MetricTopologyModelID, MetricTopologyFeatures, MetricTopologyStepping} {
+				items = append(items, statusItem(metricID, "", StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "gopsutil.cpu.info", now))
 			}
 		}
 	}
