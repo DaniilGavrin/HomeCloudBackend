@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -434,6 +436,101 @@ func filterCoreUsageItems(ctx context.Context, items []MetricItem, cpuID, coreID
 	}, nil
 }
 
+type frequencyCommandParams struct {
+	CPUId           *int64 `json:"cpu_id"`
+	CoreID          *int64 `json:"core_id"`
+	FrequencyDomain string `json:"frequency_domain"`
+}
+
+func parseFrequencyCommandParams(data json.RawMessage) (frequencyCommandParams, error) {
+	var params frequencyCommandParams
+	if err := decodeStrictParams(data, &params, "cpu_id", "core_id", "frequency_domain"); err != nil {
+		return params, err
+	}
+	if params.CPUId != nil && *params.CPUId < 0 || params.CoreID != nil && *params.CoreID < 0 {
+		return params, commands.NewClassifiedError("VALIDATION_OUT_OF_RANGE", "validation", "cpu_id and core_id must be non-negative", false, nil)
+	}
+	if params.CPUId != nil && params.CoreID != nil {
+		return params, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "cpu_id and core_id cannot be used together", false, nil)
+	}
+	if params.FrequencyDomain != "" {
+		if !isFrequencyDomainID(params.FrequencyDomain) {
+			return params, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "frequency_domain must identify a cpufreq policy", false, nil)
+		}
+		if params.CPUId != nil || params.CoreID != nil {
+			return params, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "frequency_domain cannot be combined with cpu_id or core_id", false, nil)
+		}
+	}
+	return params, nil
+}
+
+func filterFrequencyItems(ctx context.Context, items []MetricItem, params frequencyCommandParams) ([]MetricItem, error) {
+	if params.CPUId == nil && params.CoreID == nil && params.FrequencyDomain == "" {
+		return items, nil
+	}
+	selectedCPUs := make(map[string]bool)
+	selectedPolicies := make(map[string]bool)
+	requestedObject := ""
+	if params.FrequencyDomain != "" {
+		requestedObject = params.FrequencyDomain
+		selectedPolicies[params.FrequencyDomain] = true
+		for _, cpuID := range cpusForFrequencyPolicy(defaultSysfsCPUPath, params.FrequencyDomain) {
+			selectedCPUs[fmt.Sprintf("cpu%d", cpuID)] = true
+		}
+	} else {
+		cpuIDs := make([]int64, 0, 1)
+		if params.CPUId != nil {
+			cpuIDs = append(cpuIDs, *params.CPUId)
+		}
+		if params.CoreID != nil {
+			requestedObject = fmt.Sprintf("core%d", *params.CoreID)
+			topology, err := readLinuxTopology(ctx, defaultSysfsCPUPath)
+			if err != nil {
+				return nil, err
+			}
+			for _, item := range topology {
+				if item.MetricID != MetricTopologyCoreID || item.Status != StatusValid {
+					continue
+				}
+				coreValue, ok := item.Value.(int)
+				if !ok || int64(coreValue) != *params.CoreID {
+					continue
+				}
+				cpuText := strings.TrimPrefix(item.ObjectID, "cpu")
+				cpuID, parseErr := strconv.ParseInt(cpuText, 10, 64)
+				if parseErr == nil && cpuID >= 0 {
+					cpuIDs = append(cpuIDs, cpuID)
+				}
+			}
+		} else {
+			requestedObject = fmt.Sprintf("cpu%d", *params.CPUId)
+		}
+		for _, cpuID := range cpuIDs {
+			cpuObjectID := fmt.Sprintf("cpu%d", cpuID)
+			selectedCPUs[cpuObjectID] = true
+			for _, policyID := range frequencyPoliciesForCPU(defaultSysfsCPUPath, cpuID) {
+				selectedPolicies[policyID] = true
+			}
+		}
+	}
+
+	filtered := make([]MetricItem, 0)
+	for _, item := range items {
+		if selectedPolicies[item.ObjectID] || (item.MetricID == MetricCoreFrequency && selectedCPUs[item.ObjectID]) {
+			filtered = append(filtered, item)
+		}
+	}
+	if len(filtered) > 0 {
+		return filtered, nil
+	}
+	now := time.Now().UTC()
+	statusMetric := MetricFrequencyTarget
+	if len(selectedCPUs) > 0 {
+		statusMetric = MetricCoreFrequency
+	}
+	return []MetricItem{statusItem(statusMetric, requestedObject, StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "linux.sysfs.cpufreq", now)}, nil
+}
+
 func RegisterCommands(registry *commands.Registry, collector Collector) {
 	registry.MustRegister(MetricTotalUsage, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
 		var params intervalCommandParams
@@ -530,8 +627,16 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 	})
 
 	registerFrequencyCommand := func(metricID string) {
-		registry.MustRegister(metricID, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+		registry.MustRegister(metricID, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+			params, err := parseFrequencyCommandParams(msg.Data)
+			if err != nil {
+				return nil, err
+			}
 			items, err := readLinuxFrequency(ctx, defaultSysfsCPUPath)
+			if err != nil {
+				return nil, err
+			}
+			items, err = filterFrequencyItems(ctx, items, params)
 			if err != nil {
 				return nil, err
 			}
@@ -546,8 +651,16 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 			return filtered, nil
 		})
 	}
-	registry.MustRegister(MetricFrequencyTarget, func(ctx context.Context, _ commands.Inbound, _ commands.ClientContext) (any, error) {
+	registry.MustRegister(MetricFrequencyTarget, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
+		params, err := parseFrequencyCommandParams(msg.Data)
+		if err != nil {
+			return nil, err
+		}
 		items, err := readLinuxFrequency(ctx, defaultSysfsCPUPath)
+		if err != nil {
+			return nil, err
+		}
+		items, err = filterFrequencyItems(ctx, items, params)
 		if err != nil {
 			return nil, err
 		}
