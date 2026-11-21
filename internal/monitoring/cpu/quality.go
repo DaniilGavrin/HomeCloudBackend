@@ -55,3 +55,12 @@ func classifySourceError(err error) (status, reason, code string) {
 		return StatusSourceError, "source_failure", "SOURCE_UNAVAILABLE"
 	}
 }
+
+func hasMetricStatus(items []MetricItem, metricID, objectID string) bool {
+	for _, item := range items {
+		if item.MetricID == metricID && item.ObjectID == objectID {
+			return true
+		}
+	}
+	return false
+}
