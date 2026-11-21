@@ -68,17 +68,31 @@ func NewSystemCollector() *SystemCollector { return &SystemCollector{} }
 // Read samples per-logical-CPU counters once and derives the aggregate from the
 // same sample, keeping aggregate and per-core values temporally consistent.
 func (c *SystemCollector) Read(ctx context.Context) (Snapshot, error) {
-	stats, err := cpu.TimesWithContext(ctx, true)
+	aggregateStats, err := cpu.TimesWithContext(ctx, false)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("read aggregate CPU counters: %w", err)
+	}
+	if len(aggregateStats) == 0 {
+		return Snapshot{}, errors.New("aggregate CPU counters are unavailable")
+	}
+	perCPUStats, err := cpu.TimesWithContext(ctx, true)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("read per-CPU counters: %w", err)
 	}
-	if len(stats) == 0 {
-		return Snapshot{}, errors.New("CPU counters are unavailable")
+	if len(perCPUStats) == 0 {
+		return Snapshot{}, errors.New("per-CPU counters are unavailable")
 	}
 
-	result := Snapshot{Cores: make([]CoreCounters, 0, len(stats))}
-	seen := make(map[string]struct{}, len(stats))
-	for _, stat := range stats {
+	aggregate := countersFromTimes(aggregateStats[0])
+	if err := validateCounters(aggregate); err != nil {
+		return Snapshot{}, fmt.Errorf("invalid aggregate CPU counters: %w", err)
+	}
+	result := Snapshot{
+		Counters: aggregate,
+		Cores: make([]CoreCounters, 0, len(perCPUStats)),
+	}
+	seen := make(map[string]struct{}, len(perCPUStats))
+	for _, stat := range perCPUStats {
 		if stat.CPU == "" || stat.CPU == "cpu-total" {
 			continue
 		}
@@ -86,37 +100,35 @@ func (c *SystemCollector) Read(ctx context.Context) (Snapshot, error) {
 			return Snapshot{}, fmt.Errorf("duplicate logical CPU identifier %q", stat.CPU)
 		}
 		seen[stat.CPU] = struct{}{}
-
-		counters := Counters{
-			UserSeconds:      stat.User,
-			SystemSeconds:    stat.System,
-			NiceSeconds:      stat.Nice,
-			IdleSeconds:      stat.Idle,
-			IOWaitSeconds:    stat.Iowait,
-			IRQSeconds:       stat.Irq,
-			SoftIRQSeconds:   stat.Softirq,
-			StealSeconds:     stat.Steal,
-			GuestSeconds:     stat.Guest,
-			GuestNiceSeconds: stat.GuestNice,
-		}
-		// On Linux, guest is already included in user and guest_nice in nice.
-		// Do not add those buckets again or total CPU time will be double-counted.
-		counters.TotalSeconds = stat.User + stat.System + stat.Nice + stat.Idle +
-			stat.Iowait + stat.Irq + stat.Softirq + stat.Steal
+		counters := countersFromTimes(stat)
 		if err := validateCounters(counters); err != nil {
 			return Snapshot{}, fmt.Errorf("invalid counters for logical CPU %q: %w", stat.CPU, err)
 		}
-
 		result.Cores = append(result.Cores, CoreCounters{ObjectID: stat.CPU, Counters: counters})
-		addCounters(&result.Counters, counters)
 	}
 	if len(result.Cores) == 0 {
 		return Snapshot{}, errors.New("per-CPU counters are unavailable")
 	}
-	if err := validateCounters(result.Counters); err != nil {
-		return Snapshot{}, fmt.Errorf("invalid aggregate CPU counters: %w", err)
-	}
 	return result, nil
+}
+
+func countersFromTimes(stat cpu.TimesStat) Counters {
+	// On Linux, guest is already included in user and guest_nice in nice.
+	// Do not add those buckets again or total CPU time will be double-counted.
+	return Counters{
+		TotalSeconds: stat.User + stat.System + stat.Nice + stat.Idle +
+			stat.Iowait + stat.Irq + stat.Softirq + stat.Steal,
+		IdleSeconds:      stat.Idle,
+		UserSeconds:      stat.User,
+		SystemSeconds:    stat.System,
+		NiceSeconds:      stat.Nice,
+		IOWaitSeconds:    stat.Iowait,
+		IRQSeconds:       stat.Irq,
+		SoftIRQSeconds:   stat.Softirq,
+		StealSeconds:     stat.Steal,
+		GuestSeconds:     stat.Guest,
+		GuestNiceSeconds: stat.GuestNice,
+	}
 }
 
 func addCounters(dst *Counters, src Counters) {
