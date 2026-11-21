@@ -34,6 +34,8 @@ const (
 	MetricPerfBusCycles = "system.cpu.perf.bus_cycles"
 	MetricPerfStalledFrontend = "system.cpu.perf.stalled_cycles_frontend"
 	MetricPerfStalledBackend = "system.cpu.perf.stalled_cycles_backend"
+	MetricPerfBranchMissRate = "system.cpu.perf.branch_miss_rate"
+	MetricPerfCacheMissRate = "system.cpu.perf.cache_miss_rate"
 )
 
 var (
@@ -89,7 +91,8 @@ func validTarget(target string) bool {
 		MetricRunQueue, MetricPressureTarget, MetricPressureSome, MetricPressureFull,
 		MetricPerfTarget, MetricPerfCycles, MetricPerfRefCycles, MetricPerfInstructions,
 		MetricPerfIPC, MetricPerfBranches, MetricPerfBranchMisses, MetricPerfCacheReferences,
-		MetricPerfCacheMisses, MetricPerfBusCycles, MetricPerfStalledFrontend, MetricPerfStalledBackend:
+		MetricPerfCacheMisses, MetricPerfBusCycles, MetricPerfStalledFrontend, MetricPerfStalledBackend,
+		MetricPerfBranchMissRate, MetricPerfCacheMissRate:
 		return true
 	default:
 		return strings.HasPrefix(target, MetricCStateTarget+".") ||
@@ -290,7 +293,9 @@ func (m *Manager) hasPressureSubscribers() bool {
 
 func (m *Manager) hasPerfSubscribers() bool {
 	return m.hasMatchingTarget(func(target string) bool {
-		return target == Target || isPerfTarget(target)
+		// PMU collection is explicitly opt-in; the broad system.cpu group must
+		// not open hardware counters implicitly.
+		return isPerfTarget(target)
 	})
 }
 
