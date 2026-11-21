@@ -20,6 +20,7 @@ const (
 	maxSubscriptionsTotal = 256
 
 	MetricRunQueue = "system.cpu.runqueue"
+	MetricCoreUsage = "system.cpu.core.usage"
 	MetricPressureTarget = "system.cpu.pressure"
 	MetricPressureSome = "system.cpu.pressure.some"
 	MetricPressureFull = "system.cpu.pressure.full"
@@ -99,7 +100,7 @@ func validTarget(target string) bool {
 	switch target {
 	case Target, MetricTotalUsage, MetricUser, MetricSystem, MetricNice, MetricIdle,
 		MetricIOWait, MetricIRQ, MetricSoftIRQ, MetricSteal, MetricGuest, MetricGuestNice,
-		MetricCoreTotalUsage, MetricCoreUser, MetricFrequencyTarget, MetricCoreFrequency,
+		MetricCoreTotalUsage, MetricCoreUser, MetricCoreUsage, MetricFrequencyTarget, MetricCoreFrequency,
 		MetricFrequencyCurrent, MetricFrequencyMin, MetricFrequencyMax,
 		MetricFrequencyBase, MetricFrequencyGovernor,
 		MetricCStateTarget, MetricThrottlingTarget, MetricInterrupts, MetricContextSwitches,
