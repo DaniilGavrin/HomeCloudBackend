@@ -21,6 +21,7 @@ const (
 	MetricFrequencyBase     = "system.cpu.frequency.base"
 	MetricFrequencyGovernor = "system.cpu.frequency.governor"
 	MetricFrequencyTarget   = "system.cpu.frequency"
+	MetricCoreFrequency     = "system.cpu.core.frequency"
 
 	MetricTopologyCommand       = "system.cpu.topology"
 	MetricTopologyLogicalCount  = "system.cpu.topology.logical_count"
@@ -69,7 +70,7 @@ var ErrMetricUnsupported = errors.New("CPU metric is not supported by this platf
 // frequencies in kHz; Monitoring's canonical unit is Hz.
 func readLinuxFrequency(ctx context.Context, cpuSysfsPath string) ([]MetricItem, error) {
 	now := time.Now().UTC()
-	metricIDs := []string{MetricFrequencyCurrent, MetricFrequencyMin, MetricFrequencyMax, MetricFrequencyBase, MetricFrequencyGovernor}
+	metricIDs := []string{MetricFrequencyCurrent, MetricFrequencyMin, MetricFrequencyMax, MetricFrequencyBase, MetricFrequencyGovernor, MetricCoreFrequency}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -137,6 +138,50 @@ func readLinuxFrequency(ctx context.Context, cpuSysfsPath string) ([]MetricItem,
 		appendFrequency(MetricFrequencyMax, "cpuinfo_max_freq", "Hz", "")
 		appendFrequency(MetricFrequencyBase, "base_frequency", "Hz", "cpuinfo_base_freq")
 		appendFrequency(MetricFrequencyGovernor, "scaling_governor", "string", "")
+
+		// cpufreq policies may cover one or several logical CPUs. Expose the
+		// current policy value against each affected logical CPU when the
+		// kernel provides an explicit mapping.
+		cpuListText, listErr := readSysfsValue(filepath.Join(policyPath, "affected_cpus"))
+		if listErr != nil {
+			cpuListText, listErr = readSysfsValue(filepath.Join(policyPath, "related_cpus"))
+		}
+		if listErr != nil {
+			status, reason, code := classifySourceError(listErr)
+			if errors.Is(listErr, os.ErrNotExist) {
+				status, reason, code = StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED"
+			}
+			items = append(items, statusItem(MetricCoreFrequency, objectID, status, reason, code, "linux.sysfs.cpufreq", now))
+		} else if cpuIDs, parseErr := parseCPUList(cpuListText); parseErr != nil {
+			items = append(items, statusItem(MetricCoreFrequency, objectID, StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.sysfs.cpufreq", now))
+		} else {
+			currentText, currentErr := readSysfsValue(filepath.Join(policyPath, "scaling_cur_freq"))
+			var currentHz uint64
+			if currentErr == nil {
+				var parsed uint64
+				parsed, currentErr = strconv.ParseUint(currentText, 10, 64)
+				if currentErr == nil && parsed > 0 && parsed <= uint64(^uint64(0)>>1)/1000 {
+					currentHz = parsed * 1000
+				} else if currentErr == nil {
+					currentErr = errors.New("current CPU frequency is outside the supported range")
+				}
+			}
+			for _, cpuID := range cpuIDs {
+				coreObjectID := fmt.Sprintf("cpu%d", cpuID)
+				if currentErr != nil {
+					status, reason, code := classifySourceError(currentErr)
+					if errors.Is(currentErr, os.ErrNotExist) {
+						status, reason, code = StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED"
+					}
+					items = append(items, statusItem(MetricCoreFrequency, coreObjectID, status, reason, code, "linux.sysfs.cpufreq", now))
+					continue
+				}
+				items = append(items, MetricItem{
+					MetricID: MetricCoreFrequency, ObjectID: coreObjectID, Value: int64(currentHz), Unit: "Hz",
+					ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid, SourceID: "linux.sysfs.cpufreq",
+				})
+			}
+		}
 	}
 	return items, nil
 }
