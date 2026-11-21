@@ -66,7 +66,7 @@ type perfReader struct {
 	openErrors map[string]error
 	last map[string]uint64
 	lastStatus map[string]string
-	lastAt time.Time
+	lastAt map[string]time.Time
 }
 
 func (c *SystemCollector) ReadPerfMetrics(ctx context.Context, targets ...string) ([]MetricItem, error) {
@@ -186,6 +186,7 @@ func newPerfReader(cpus []int, cpuListErr error, events []perfEventSpec, metricI
 		openErrors: make(map[string]error),
 		last: make(map[string]uint64),
 		lastStatus: make(map[string]string),
+		lastAt: make(map[string]time.Time),
 	}
 	if cpuListErr != nil {
 		for _, event := range events {
@@ -231,12 +232,14 @@ func (r *perfReader) close() {
 	r.cpus = nil
 	r.last = nil
 	r.lastStatus = nil
+	r.lastAt = nil
 }
 
 func (r *perfReader) read(ctx context.Context) ([]MetricItem, error) {
 	now := time.Now().UTC()
 	values := make(map[string]uint64, len(r.events))
 	statuses := make(map[string]MetricItem, len(r.events)+len(r.unsupportedIDs))
+	windowByEvent := make(map[string]int64, len(r.events))
 	for _, metricID := range r.unsupportedIDs {
 		statuses[metricID] = statusItem(metricID, "", StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.perf_event_open", now)
 	}
@@ -278,19 +281,52 @@ func (r *perfReader) read(ctx context.Context) ([]MetricItem, error) {
 			}
 			status, reason, code := classifyPerfError(firstErr)
 			statuses[event.metricID] = statusItem(event.metricID, "", status, reason, code, "linux.perf_event_open", now)
+			delete(r.last, event.metricID)
+			delete(r.lastStatus, event.metricID)
+			delete(r.lastAt, event.metricID)
 			continue
 		}
-		values[event.metricID] = total
-		status := StatusValid
-		reason, code := "", ""
 		if failures > 0 {
-			status, reason, code = StatusPartial, "partial_source", "PARTIAL_RESULT"
+			statuses[event.metricID] = statusItem(event.metricID, "", StatusPartial, "partial_source", "PARTIAL_RESULT", "linux.perf_event_open", now)
+			// Do not advance the baseline on a partial aggregate. The next valid
+			// sample can still calculate a delta from the last complete sample.
+			continue
 		}
+
+		previous, hasPrevious := r.last[event.metricID]
+		if !hasPrevious || r.lastStatus[event.metricID] != StatusValid {
+			statuses[event.metricID] = statusItem(event.metricID, "", StatusUnknown, "no_baseline", "", "linux.perf_event_open", now)
+			r.last[event.metricID] = total
+			r.lastStatus[event.metricID] = StatusValid
+			r.lastAt[event.metricID] = now
+			continue
+		}
+		if total < previous {
+			statuses[event.metricID] = statusItem(event.metricID, "", StatusUnavailable, "counter_reset", "SOURCE_INVALID_DATA", "linux.perf_event_open", now)
+			r.last[event.metricID] = total
+			r.lastStatus[event.metricID] = StatusValid
+			r.lastAt[event.metricID] = now
+			continue
+		}
+		delta := total - previous
+		windowMS := now.Sub(r.lastAt[event.metricID]).Milliseconds()
+		if windowMS <= 0 {
+			statuses[event.metricID] = statusItem(event.metricID, "", StatusInvalid, "invalid_window", "SOURCE_INVALID_DATA", "linux.perf_event_open", now)
+			r.last[event.metricID] = total
+			r.lastStatus[event.metricID] = StatusValid
+			r.lastAt[event.metricID] = now
+			continue
+		}
+		values[event.metricID] = delta
+		windowByEvent[event.metricID] = windowMS
 		statuses[event.metricID] = MetricItem{
-			MetricID: event.metricID, Value: total, Unit: "count",
-			ObservedAt: now.Format(time.RFC3339Nano), Status: status,
-			Reason: reason, ErrorCode: code, SourceID: "linux.perf_event_open",
+			MetricID: event.metricID, Value: delta, Unit: "count",
+			ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid,
+			SourceID: "linux.perf_event_open", WindowMS: windowMS,
 		}
+		r.last[event.metricID] = total
+		r.lastStatus[event.metricID] = StatusValid
+		r.lastAt[event.metricID] = now
 	}
 
 	items := make([]MetricItem, 0, len(r.metricIDs))
@@ -301,50 +337,37 @@ func (r *perfReader) read(ctx context.Context) ([]MetricItem, error) {
 			}
 		}
 	}
-	windowMS := int64(0)
-	if !r.lastAt.IsZero() {
-		windowMS = now.Sub(r.lastAt).Milliseconds()
-	}
 	for _, metricID := range r.derivedIDs {
 		numeratorID, denominatorID := isPerfDerivedMetric(metricID)
 		numerator, numeratorOK := values[numeratorID]
 		denominator, denominatorOK := values[denominatorID]
-		currentNumeratorStatus := statuses[numeratorID].Status
-		currentDenominatorStatus := statuses[denominatorID].Status
-		previousNumerator, previousNumeratorOK := r.last[numeratorID]
-		previousDenominator, previousDenominatorOK := r.last[denominatorID]
+		numeratorStatus := statuses[numeratorID].Status
+		denominatorStatus := statuses[denominatorID].Status
 		if !numeratorOK || !denominatorOK {
-			numeratorStatus := statuses[numeratorID].Status
-			denominatorStatus := statuses[denominatorID].Status
-			if numeratorStatus == StatusUnsupported || denominatorStatus == StatusUnsupported {
+			switch {
+			case numeratorStatus == StatusUnsupported || denominatorStatus == StatusUnsupported:
 				items = append(items, statusItem(metricID, "", StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.perf_event_open", now))
-			} else if numeratorStatus == StatusPermissionDenied || denominatorStatus == StatusPermissionDenied {
+			case numeratorStatus == StatusPermissionDenied || denominatorStatus == StatusPermissionDenied:
 				items = append(items, statusItem(metricID, "", StatusPermissionDenied, "permission_denied", "SOURCE_PERMISSION_DENIED", "linux.perf_event_open", now))
-			} else {
+			case numeratorStatus == StatusPartial || denominatorStatus == StatusPartial:
+				items = append(items, statusItem(metricID, "", StatusPartial, "source_counter_partial", "PARTIAL_RESULT", "linux.perf_event_open", now))
+			case numeratorStatus == StatusUnknown || denominatorStatus == StatusUnknown:
+				items = append(items, statusItem(metricID, "", StatusUnknown, "no_baseline", "", "linux.perf_event_open", now))
+			default:
 				items = append(items, statusItem(metricID, "", StatusUnavailable, "source_unavailable", "PARTIAL_RESULT", "linux.perf_event_open", now))
 			}
 			continue
 		}
-		if currentNumeratorStatus != StatusValid || currentDenominatorStatus != StatusValid ||
+		if numeratorStatus != StatusValid || denominatorStatus != StatusValid ||
 			r.lastStatus[numeratorID] != StatusValid || r.lastStatus[denominatorID] != StatusValid {
 			items = append(items, statusItem(metricID, "", StatusPartial, "source_counter_partial", "PARTIAL_RESULT", "linux.perf_event_open", now))
 			continue
 		}
-		if !previousNumeratorOK || !previousDenominatorOK {
-			items = append(items, statusItem(metricID, "", StatusUnknown, "no_baseline", "", "linux.perf_event_open", now))
-			continue
-		}
-		if numerator < previousNumerator || denominator < previousDenominator {
-			items = append(items, statusItem(metricID, "", StatusUnavailable, "counter_reset", "SOURCE_INVALID_DATA", "linux.perf_event_open", now))
-			continue
-		}
-		deltaNumerator := numerator - previousNumerator
-		deltaDenominator := denominator - previousDenominator
-		if deltaDenominator == 0 {
+		if denominator == 0 {
 			items = append(items, statusItem(metricID, "", StatusUnavailable, "zero_denominator", "SOURCE_INVALID_DATA", "linux.perf_event_open", now))
 			continue
 		}
-		value := float64(deltaNumerator) / float64(deltaDenominator)
+		value := float64(numerator) / float64(denominator)
 		unit := "ratio"
 		if metricID != MetricPerfIPC {
 			value *= 100
@@ -354,18 +377,16 @@ func (r *perfReader) read(ctx context.Context) ([]MetricItem, error) {
 			items = append(items, statusItem(metricID, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.perf_event_open", now))
 			continue
 		}
+		windowMS := windowByEvent[numeratorID]
+		if denominatorWindow := windowByEvent[denominatorID]; denominatorWindow < windowMS || windowMS == 0 {
+			windowMS = denominatorWindow
+		}
 		items = append(items, MetricItem{
 			MetricID: metricID, Value: value, Unit: unit,
 			ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid,
 			SourceID: "linux.perf_event_open", WindowMS: windowMS,
 		})
 	}
-	r.last = values
-	r.lastStatus = make(map[string]string, len(statuses))
-	for metricID, item := range statuses {
-		r.lastStatus[metricID] = item.Status
-	}
-	r.lastAt = now
 	return items, nil
 }
 
