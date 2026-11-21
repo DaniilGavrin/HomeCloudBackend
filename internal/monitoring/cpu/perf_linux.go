@@ -16,26 +16,53 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const perfFlagFDCloseOnExec = 1 << 3
+
 type perfEventSpec struct {
 	metricID string
+	eventType uint32
 	config uint64
 }
 
+func hardwareEvent(metricID string, config uint64) perfEventSpec {
+	return perfEventSpec{metricID: metricID, eventType: uint32(unix.PERF_TYPE_HARDWARE), config: config}
+}
+
+func cacheEvent(metricID string, cache, operation, result uint64) perfEventSpec {
+	config := cache | operation<<8 | result<<16
+	return perfEventSpec{metricID: metricID, eventType: uint32(unix.PERF_TYPE_HW_CACHE), config: config}
+}
+
 var genericPerfEvents = []perfEventSpec{
-	{MetricPerfCycles, unix.PERF_COUNT_HW_CPU_CYCLES},
-	{MetricPerfRefCycles, unix.PERF_COUNT_HW_REF_CPU_CYCLES},
-	{MetricPerfInstructions, unix.PERF_COUNT_HW_INSTRUCTIONS},
-	{MetricPerfBranches, unix.PERF_COUNT_HW_BRANCH_INSTRUCTIONS},
-	{MetricPerfBranchMisses, unix.PERF_COUNT_HW_BRANCH_MISSES},
-	{MetricPerfCacheReferences, unix.PERF_COUNT_HW_CACHE_REFERENCES},
-	{MetricPerfCacheMisses, unix.PERF_COUNT_HW_CACHE_MISSES},
-	{MetricPerfBusCycles, unix.PERF_COUNT_HW_BUS_CYCLES},
-	{MetricPerfStalledFrontend, unix.PERF_COUNT_HW_STALLED_CYCLES_FRONTEND},
-	{MetricPerfStalledBackend, unix.PERF_COUNT_HW_STALLED_CYCLES_BACKEND},
+	hardwareEvent(MetricPerfCycles, uint64(unix.PERF_COUNT_HW_CPU_CYCLES)),
+	hardwareEvent(MetricPerfRefCycles, uint64(unix.PERF_COUNT_HW_REF_CPU_CYCLES)),
+	hardwareEvent(MetricPerfInstructions, uint64(unix.PERF_COUNT_HW_INSTRUCTIONS)),
+	hardwareEvent(MetricPerfBranches, uint64(unix.PERF_COUNT_HW_BRANCH_INSTRUCTIONS)),
+	hardwareEvent(MetricPerfBranchMisses, uint64(unix.PERF_COUNT_HW_BRANCH_MISSES)),
+	hardwareEvent(MetricPerfCacheReferences, uint64(unix.PERF_COUNT_HW_CACHE_REFERENCES)),
+	hardwareEvent(MetricPerfCacheMisses, uint64(unix.PERF_COUNT_HW_CACHE_MISSES)),
+	hardwareEvent(MetricPerfBusCycles, uint64(unix.PERF_COUNT_HW_BUS_CYCLES)),
+	hardwareEvent(MetricPerfStalledFrontend, uint64(unix.PERF_COUNT_HW_STALLED_CYCLES_FRONTEND)),
+	hardwareEvent(MetricPerfStalledBackend, uint64(unix.PERF_COUNT_HW_STALLED_CYCLES_BACKEND)),
+	cacheEvent(MetricPerfL1DReadAccess, uint64(unix.PERF_COUNT_HW_CACHE_L1D), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_ACCESS)),
+	cacheEvent(MetricPerfL1DReadMiss, uint64(unix.PERF_COUNT_HW_CACHE_L1D), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_MISS)),
+	cacheEvent(MetricPerfL1IReadAccess, uint64(unix.PERF_COUNT_HW_CACHE_L1I), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_ACCESS)),
+	cacheEvent(MetricPerfL1IReadMiss, uint64(unix.PERF_COUNT_HW_CACHE_L1I), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_MISS)),
+	cacheEvent(MetricPerfL2ReadAccess, uint64(unix.PERF_COUNT_HW_CACHE_L2), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_ACCESS)),
+	cacheEvent(MetricPerfL2ReadMiss, uint64(unix.PERF_COUNT_HW_CACHE_L2), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_MISS)),
+	cacheEvent(MetricPerfLLCReadAccess, uint64(unix.PERF_COUNT_HW_CACHE_LL), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_ACCESS)),
+	cacheEvent(MetricPerfLLCReadMiss, uint64(unix.PERF_COUNT_HW_CACHE_LL), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_MISS)),
+	cacheEvent(MetricPerfDTLBReadAccess, uint64(unix.PERF_COUNT_HW_CACHE_DTLB), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_ACCESS)),
+	cacheEvent(MetricPerfDTLBReadMiss, uint64(unix.PERF_COUNT_HW_CACHE_DTLB), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_MISS)),
+	cacheEvent(MetricPerfITLBReadAccess, uint64(unix.PERF_COUNT_HW_CACHE_ITLB), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_ACCESS)),
+	cacheEvent(MetricPerfITLBReadMiss, uint64(unix.PERF_COUNT_HW_CACHE_ITLB), uint64(unix.PERF_COUNT_HW_CACHE_OP_READ), uint64(unix.PERF_COUNT_HW_CACHE_RESULT_MISS)),
 }
 
 type perfReader struct {
 	cpus []int
+	events []perfEventSpec
+	metricIDs []string
+	derivedIDs []string
 	fds map[int]map[string]int
 	openErrors map[string]error
 	last map[string]uint64
@@ -43,10 +70,29 @@ type perfReader struct {
 	lastAt time.Time
 }
 
-func (c *SystemCollector) ReadPerfMetrics(ctx context.Context) ([]MetricItem, error) {
+func (c *SystemCollector) ReadPerfMetrics(ctx context.Context, targets ...string) ([]MetricItem, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	metricIDs := selectPerfMetricIDs(targets)
+	eventIDs := selectPerfEventIDs(targets)
+	selectedEvents := make([]perfEventSpec, 0, len(eventIDs))
+	eventByID := make(map[string]perfEventSpec, len(genericPerfEvents))
+	for _, event := range genericPerfEvents {
+		eventByID[event.metricID] = event
+	}
+	for _, id := range eventIDs {
+		if event, ok := eventByID[id]; ok {
+			selectedEvents = append(selectedEvents, event)
+		}
+	}
+	derivedIDs := make([]string, 0)
+	for _, id := range metricIDs {
+		if numerator, denominator := isPerfDerivedMetric(id); numerator != "" && denominator != "" {
+			derivedIDs = append(derivedIDs, id)
+		}
+	}
+
 	c.perfMu.Lock()
 	defer c.perfMu.Unlock()
 
@@ -55,14 +101,16 @@ func (c *SystemCollector) ReadPerfMetrics(ctx context.Context) ([]MetricItem, er
 		if c.perf != nil {
 			c.perf.close()
 		}
-		c.perf = newPerfReader(nil, err)
+		c.perf = newPerfReader(nil, err, selectedEvents, metricIDs, derivedIDs)
 		return c.perf.read(ctx)
 	}
-	if c.perf == nil || !sameCPUList(c.perf.cpus, cpus) {
+	if c.perf == nil || !sameCPUList(c.perf.cpus, cpus) ||
+		!samePerfEventList(c.perf.events, selectedEvents) ||
+		!sameStringList(c.perf.metricIDs, metricIDs) {
 		if c.perf != nil {
 			c.perf.close()
 		}
-		c.perf = newPerfReader(cpus, nil)
+		c.perf = newPerfReader(cpus, nil, selectedEvents, metricIDs, derivedIDs)
 	}
 	return c.perf.read(ctx)
 }
@@ -101,31 +149,58 @@ func sameCPUList(a, b []int) bool {
 	return true
 }
 
-func newPerfReader(cpus []int, cpuListErr error) *perfReader {
+func samePerfEventList(a, b []perfEventSpec) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].metricID != b[i].metricID || a[i].eventType != b[i].eventType || a[i].config != b[i].config {
+			return false
+		}
+	}
+	return true
+}
+
+func sameStringList(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func newPerfReader(cpus []int, cpuListErr error, events []perfEventSpec, metricIDs, derivedIDs []string) *perfReader {
 	reader := &perfReader{
 		cpus: append([]int(nil), cpus...),
+		events: append([]perfEventSpec(nil), events...),
+		metricIDs: append([]string(nil), metricIDs...),
+		derivedIDs: append([]string(nil), derivedIDs...),
 		fds: make(map[int]map[string]int),
 		openErrors: make(map[string]error),
 		last: make(map[string]uint64),
 		lastStatus: make(map[string]string),
 	}
 	if cpuListErr != nil {
-		for _, event := range genericPerfEvents {
+		for _, event := range events {
 			reader.openErrors[event.metricID] = cpuListErr
 		}
 		return reader
 	}
 	for _, cpuID := range cpus {
 		reader.fds[cpuID] = make(map[string]int)
-		for _, event := range genericPerfEvents {
+		for _, event := range events {
 			attr := unix.PerfEventAttr{
-				Type: uint32(unix.PERF_TYPE_HARDWARE),
+				Type: event.eventType,
 				Size: uint32(unsafe.Sizeof(unix.PerfEventAttr{})),
 				Config: event.config,
 				Read_format: unix.PERF_FORMAT_TOTAL_TIME_ENABLED | unix.PERF_FORMAT_TOTAL_TIME_RUNNING,
 				Bits: unix.PerfBitDisabled,
 			}
-			fd, err := unix.PerfEventOpen(&attr, -1, cpuID, -1, 0)
+			fd, err := unix.PerfEventOpen(&attr, -1, cpuID, -1, perfFlagFDCloseOnExec)
 			if err == nil {
 				err = unix.IoctlSetInt(fd, unix.PERF_EVENT_IOC_RESET, 0)
 			}
@@ -157,17 +232,18 @@ func (r *perfReader) close() {
 	r.fds = nil
 	r.cpus = nil
 	r.last = nil
+	r.lastStatus = nil
 }
 
 func (r *perfReader) read(ctx context.Context) ([]MetricItem, error) {
 	now := time.Now().UTC()
-	values := make(map[string]uint64, len(genericPerfEvents))
-	statuses := make(map[string]MetricItem, len(genericPerfEvents))
-	for _, event := range genericPerfEvents {
+	values := make(map[string]uint64, len(r.events))
+	statuses := make(map[string]MetricItem, len(r.events))
+	for _, event := range r.events {
 		var total uint64
 		successes, failures := 0, 0
 		var firstErr error
-		for cpuID, cpuFDs := range r.fds {
+		for _, cpuFDs := range r.fds {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
@@ -194,7 +270,6 @@ func (r *perfReader) read(ctx context.Context) ([]MetricItem, error) {
 			}
 			total += value
 			successes++
-			_ = cpuID
 		}
 		if successes == 0 {
 			if firstErr == nil {
@@ -217,62 +292,65 @@ func (r *perfReader) read(ctx context.Context) ([]MetricItem, error) {
 		}
 	}
 
-	items := make([]MetricItem, 0, len(genericPerfEvents)+3)
-	for _, event := range genericPerfEvents {
-		items = append(items, statuses[event.metricID])
+	items := make([]MetricItem, 0, len(r.metricIDs))
+	for _, metricID := range r.metricIDs {
+		if _, derived := isPerfDerivedMetric(metricID); derived == "" {
+			if item, ok := statuses[metricID]; ok {
+				items = append(items, item)
+			}
+		}
 	}
-
 	windowMS := int64(0)
 	if !r.lastAt.IsZero() {
 		windowMS = now.Sub(r.lastAt).Milliseconds()
 	}
-	derive := func(metricID, numeratorID, denominatorID string, percent bool) MetricItem {
+	for _, metricID := range r.derivedIDs {
+		numeratorID, denominatorID := isPerfDerivedMetric(metricID)
 		numerator, numeratorOK := values[numeratorID]
 		denominator, denominatorOK := values[denominatorID]
-		numeratorStatus := statuses[numeratorID]
-		denominatorStatus := statuses[denominatorID]
-		if numeratorStatus.Status != StatusValid || denominatorStatus.Status != StatusValid {
-			return statusItem(metricID, "", StatusPartial, "source_counter_partial", "PARTIAL_RESULT", "linux.perf_event_open", now)
-		}
+		currentNumeratorStatus := statuses[numeratorID].Status
+		currentDenominatorStatus := statuses[denominatorID].Status
 		previousNumerator, previousNumeratorOK := r.last[numeratorID]
 		previousDenominator, previousDenominatorOK := r.last[denominatorID]
-		if r.lastStatus[numeratorID] != StatusValid || r.lastStatus[denominatorID] != StatusValid {
-			return statusItem(metricID, "", StatusPartial, "previous_source_counter_partial", "PARTIAL_RESULT", "linux.perf_event_open", now)
-		}
 		if !numeratorOK || !denominatorOK {
-			return statusItem(metricID, "", StatusUnavailable, "source_unavailable", "PARTIAL_RESULT", "linux.perf_event_open", now)
+			items = append(items, statusItem(metricID, "", StatusUnavailable, "source_unavailable", "PARTIAL_RESULT", "linux.perf_event_open", now))
+			continue
+		}
+		if currentNumeratorStatus != StatusValid || currentDenominatorStatus != StatusValid ||
+			r.lastStatus[numeratorID] != StatusValid || r.lastStatus[denominatorID] != StatusValid {
+			items = append(items, statusItem(metricID, "", StatusPartial, "source_counter_partial", "PARTIAL_RESULT", "linux.perf_event_open", now))
+			continue
 		}
 		if !previousNumeratorOK || !previousDenominatorOK {
-			return statusItem(metricID, "", StatusUnknown, "no_baseline", "", "linux.perf_event_open", now)
+			items = append(items, statusItem(metricID, "", StatusUnknown, "no_baseline", "", "linux.perf_event_open", now))
+			continue
 		}
 		if numerator < previousNumerator || denominator < previousDenominator {
-			return statusItem(metricID, "", StatusUnavailable, "counter_reset", "SOURCE_INVALID_DATA", "linux.perf_event_open", now)
+			items = append(items, statusItem(metricID, "", StatusUnavailable, "counter_reset", "SOURCE_INVALID_DATA", "linux.perf_event_open", now))
+			continue
 		}
 		deltaNumerator := numerator - previousNumerator
 		deltaDenominator := denominator - previousDenominator
 		if deltaDenominator == 0 {
-			return statusItem(metricID, "", StatusUnavailable, "zero_denominator", "SOURCE_INVALID_DATA", "linux.perf_event_open", now)
+			items = append(items, statusItem(metricID, "", StatusUnavailable, "zero_denominator", "SOURCE_INVALID_DATA", "linux.perf_event_open", now))
+			continue
 		}
 		value := float64(deltaNumerator) / float64(deltaDenominator)
 		unit := "ratio"
-		if percent {
+		if metricID != MetricPerfIPC {
 			value *= 100
 			unit = "percent"
 		}
 		if math.IsNaN(value) || math.IsInf(value, 0) {
-			return statusItem(metricID, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.perf_event_open", now)
+			items = append(items, statusItem(metricID, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.perf_event_open", now))
+			continue
 		}
-		return MetricItem{
+		items = append(items, MetricItem{
 			MetricID: metricID, Value: value, Unit: unit,
 			ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid,
 			SourceID: "linux.perf_event_open", WindowMS: windowMS,
-		}
+		})
 	}
-	items = append(items,
-		derive(MetricPerfIPC, MetricPerfInstructions, MetricPerfCycles, false),
-		derive(MetricPerfBranchMissRate, MetricPerfBranchMisses, MetricPerfBranches, true),
-		derive(MetricPerfCacheMissRate, MetricPerfCacheMisses, MetricPerfCacheReferences, true),
-	)
 	r.last = values
 	r.lastStatus = make(map[string]string, len(statuses))
 	for metricID, item := range statuses {
@@ -316,4 +394,3 @@ func classifyPerfError(err error) (status, reason, code string) {
 	}
 	return classifySourceError(err)
 }
-
