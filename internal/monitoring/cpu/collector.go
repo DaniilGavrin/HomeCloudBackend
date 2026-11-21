@@ -113,6 +113,9 @@ func (c *SystemCollector) Read(ctx context.Context) (Snapshot, error) {
 	// Frequency is an optional Linux provider. Missing cpufreq support does not
 	// make CPU time counters unavailable.
 	result.Frequency, _ = readLinuxFrequency(ctx, defaultSysfsCPUPath)
+	if err := ctx.Err(); err != nil {
+		return Snapshot{}, err
+	}
 	return result, nil
 }
 
