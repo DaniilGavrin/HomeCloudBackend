@@ -22,6 +22,7 @@ const (
 	MetricFrequencyGovernor = "system.cpu.frequency.governor"
 	MetricFrequencyTarget   = "system.cpu.frequency"
 	MetricCoreFrequency     = "system.cpu.core.frequency"
+	MetricTemperature       = "system.cpu.temperature"
 
 	MetricTopologyCommand       = "system.cpu.topology"
 	MetricTopologyLogicalCount  = "system.cpu.topology.logical_count"
