@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"HomeCloudBackend/internal/commands"
@@ -89,8 +90,19 @@ func (s *Server) handleMonitoringCommand(ctx context.Context, message Inbound, p
 	})
 	if result.Type != "result" {
 		code, category, retryable := "COMMAND_FAILED", "source", true
-		if result.Error == "unknown or unsupported action" {
+		switch {
+		case result.Error == "unknown or unsupported action":
 			code, category, retryable = "COMMAND_NOT_FOUND", "command", false
+		case strings.Contains(result.Error, cpumonitor.ErrMetricUnsupported.Error()):
+			code, category, retryable = "METRIC_UNSUPPORTED", "capability", false
+		case strings.Contains(strings.ToLower(result.Error), "permission denied"):
+			code, category, retryable = "SOURCE_PERMISSION_DENIED", "access", false
+		case strings.Contains(strings.ToLower(result.Error), "deadline exceeded"):
+			code, category, retryable = "SOURCE_TIMEOUT", "timeout", true
+		case strings.Contains(strings.ToLower(result.Error), "invalid command params"):
+			code, category, retryable = "SOURCE_INVALID_DATA", "validation", false
+		case strings.Contains(strings.ToLower(result.Error), "context canceled"):
+			code, category, retryable = "REQUEST_CANCELLED", "cancellation", false
 		}
 		return s.commandError(message.CorrelationID, payload.CommandID, code, category, result.Error, retryable)
 	}
@@ -107,8 +119,17 @@ func (s *Server) handleMonitoringCommand(ctx context.Context, message Inbound, p
 				resultPayload["unit"] = unit
 			}
 			commandPayload := map[string]any{"command_id": payload.CommandID, "result": resultPayload}
-			if observedAt, exists := metric["observed_at"]; exists {
-				commandPayload["metadata"] = map[string]any{"observed_at": observedAt}
+			metadata := make(map[string]any)
+			for _, key := range []string{
+				"observed_at", "status", "reason", "error_code", "source_id",
+				"window_ms", "window_start", "window_end",
+			} {
+				if field, exists := metric[key]; exists {
+					metadata[key] = field
+				}
+			}
+			if len(metadata) > 0 {
+				commandPayload["metadata"] = metadata
 			}
 			return Outbound{V: 1, Type: "command.result", CorrelationID: message.CorrelationID, NodeID: s.localNodeID, Payload: commandPayload}
 		}
@@ -134,7 +155,7 @@ func (s *Server) handleSubscriptionCreate(message Inbound, peer *connections.Pee
 		return s.subscriptionError(message.CorrelationID, "", "INVALID_PAYLOAD", "validation", "target and interval_ms are required", false), nil
 	}
 	if payload.IntervalMS != cpumonitor.EffectiveInterval.Milliseconds() {
-		return s.subscriptionError(message.CorrelationID, payload.Target, "INVALID_INTERVAL", "validation", cpumonitor.ErrInvalidInterval.Error(), false), nil
+		return s.subscriptionError(message.CorrelationID, payload.Target, "SUBSCRIPTION_INTERVAL_UNSUPPORTED", "validation", cpumonitor.ErrInvalidInterval.Error(), false), nil
 	}
 	deliver := func(ctx context.Context, outbound commands.Outbound) error {
 		err := peer.QueueJSON(ctx, outbound)
@@ -148,7 +169,7 @@ func (s *Server) handleSubscriptionCreate(message Inbound, peer *connections.Pee
 		code, category, retryable := "SUBSCRIPTION_FAILED", "source", true
 		switch {
 		case errors.Is(err, cpumonitor.ErrInvalidTarget):
-			code, category, retryable = "METRIC_UNSUPPORTED", "validation", false
+			code, category, retryable = "SUBSCRIPTION_TARGET_UNSUPPORTED", "validation", false
 		case errors.Is(err, cpumonitor.ErrInvalidInterval):
 			code, category, retryable = "INVALID_INTERVAL", "validation", false
 		case errors.Is(err, cpumonitor.ErrSubscriptionLimit):
