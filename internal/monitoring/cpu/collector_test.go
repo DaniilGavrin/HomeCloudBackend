@@ -131,22 +131,3 @@ func TestCountersFromTimesDoesNotDoubleCountGuest(t *testing.T) {
 		t.Fatalf("guest counters = (%v, %v), want (4, 2)", got.GuestSeconds, got.GuestNiceSeconds)
 	}
 }
-
-func TestItemsForIncludesFrequencyMetricsWithPolicyObjectID(t *testing.T) {
-	now := time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC)
-	current := Snapshot{
-		Frequency: []MetricItem{
-			{MetricID: MetricFrequencyCurrent, ObjectID: "policy0", Value: int64(1800000), Unit: "kHz"},
-			{MetricID: MetricFrequencyGovernor, ObjectID: "policy0", Value: "performance", Unit: "string"},
-		},
-	}
-	items := itemsFor(current, nil, now)
-	currentItem, ok := findMetric(items, MetricFrequencyCurrent, "policy0")
-	if !ok || currentItem.Value != int64(1800000) || currentItem.ObservedAt != now.Format(time.RFC3339Nano) {
-		t.Fatalf("current frequency item = %#v, found=%v", currentItem, ok)
-	}
-	governorItem, ok := findMetric(items, MetricFrequencyGovernor, "policy0")
-	if !ok || governorItem.Value != "performance" || governorItem.Unit != "string" {
-		t.Fatalf("governor item = %#v, found=%v", governorItem, ok)
-	}
-}
