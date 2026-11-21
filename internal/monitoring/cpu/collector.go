@@ -52,9 +52,8 @@ type CoreCounters struct {
 }
 
 type Snapshot struct {
-	Counters  Counters
-	Cores     []CoreCounters
-	Frequency []MetricItem
+	Counters Counters
+	Cores    []CoreCounters
 }
 
 type Collector interface {
@@ -65,6 +64,10 @@ type Collector interface {
 type SystemCollector struct{}
 
 func NewSystemCollector() *SystemCollector { return &SystemCollector{} }
+
+func (c *SystemCollector) ReadFrequency(ctx context.Context) ([]MetricItem, error) {
+	return readLinuxFrequency(ctx, defaultSysfsCPUPath)
+}
 
 // Read samples per-logical-CPU counters once and derives the aggregate from the
 // same sample, keeping aggregate and per-core values temporally consistent.
@@ -109,12 +112,6 @@ func (c *SystemCollector) Read(ctx context.Context) (Snapshot, error) {
 	}
 	if len(result.Cores) == 0 {
 		return Snapshot{}, errors.New("per-CPU counters are unavailable")
-	}
-	// Frequency is an optional Linux provider. Missing cpufreq support does not
-	// make CPU time counters unavailable.
-	result.Frequency, _ = readLinuxFrequency(ctx, defaultSysfsCPUPath)
-	if err := ctx.Err(); err != nil {
-		return Snapshot{}, err
 	}
 	return result, nil
 }
