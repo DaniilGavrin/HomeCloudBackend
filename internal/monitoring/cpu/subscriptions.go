@@ -499,7 +499,7 @@ func itemsFor(current Snapshot, previous *Snapshot, observedAt time.Time) []Metr
 		if status == "" {
 			status = StatusUnknown
 		}
-		if !hasStatusIssue(current.Issues, MetricTotalUsage, "") {
+		if !hasMetricStatus(current.Issues, MetricTotalUsage, "") {
 			items = append(items, statusItem(MetricTotalUsage, "", status, "aggregate_source_unavailable", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", observedAt))
 		}
 	}
