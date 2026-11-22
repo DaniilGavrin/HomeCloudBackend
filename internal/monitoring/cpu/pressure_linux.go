@@ -152,13 +152,19 @@ func readLinuxCPUPressure(ctx context.Context, path string) ([]MetricItem, error
 
 func pressureStatusItems(status, reason, code string, observedAt time.Time) []MetricItem {
 	items := make([]MetricItem, 0, 8)
-	for _, metricID := range []string{MetricPressureSome, MetricPressureFull} {
+	for _, metric := range []struct {
+		id string
+		totalID string
+	}{
+		{id: MetricPressureSome, totalID: MetricPressureSomeTotal},
+		{id: MetricPressureFull, totalID: MetricPressureFullTotal},
+	} {
 		for _, window := range []int64{10_000, 60_000, 300_000} {
-			item := statusItem(metricID, "", status, reason, code, "linux.host.proc.pressure.cpu", observedAt)
+			item := statusItem(metric.id, "", status, reason, code, "linux.host.proc.pressure.cpu", observedAt)
 			item.WindowMS = window
 			items = append(items, item)
 		}
-		items = append(items, statusItem(metricID, "", status, reason, code, "linux.host.proc.pressure.cpu", observedAt))
+		items = append(items, statusItem(metric.totalID, "", status, reason, code, "linux.host.proc.pressure.cpu", observedAt))
 	}
 	return items
 }
