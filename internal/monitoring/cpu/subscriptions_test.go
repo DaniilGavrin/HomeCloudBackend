@@ -105,6 +105,43 @@ func TestNewCPUTargetsAreAccepted(t *testing.T) {
 	}
 }
 
+func TestValidTargetRejectsUnknownPressureAndPerfMetrics(t *testing.T) {
+	for _, target := range []string{
+		"system.cpu.pressure.unknown",
+		"system.cpu.perf.unknown",
+	} {
+		if validTarget(target) {
+			t.Errorf("unknown monitoring target %q must be rejected", target)
+		}
+	}
+}
+
+func TestMissingCStateChildReceivesUnavailableStatus(t *testing.T) {
+	manager := NewManager(testCollector{}, nil)
+	defer manager.Close()
+	target := "system.cpu.idle.cstate.c99"
+	var delivered commands.Outbound
+	deliver := func(_ context.Context, message commands.Outbound) error {
+		delivered = message
+		return nil
+	}
+	if _, err := manager.Subscribe(1, target, EffectiveInterval, deliver); err != nil {
+		t.Fatal(err)
+	}
+	manager.publish(context.Background(), []MetricItem{
+		{MetricID: "system.cpu.idle.cstate.c1", ObjectID: "cpu0", Value: int64(1000), Unit: "ns", Status: StatusValid},
+	})
+	payload, ok := delivered.Payload.(map[string]any)
+	if !ok {
+		t.Fatalf("payload = %#v, want subscription.update", delivered.Payload)
+	}
+	items, ok := payload["items"].([]MetricItem)
+	if !ok || len(items) != 1 || items[0].MetricID != target ||
+		items[0].Status != StatusUnavailable || items[0].Reason != "not_discovered" {
+		t.Fatalf("missing C-state did not receive an explicit unavailable status: %#v", payload["items"])
+	}
+}
+
 func TestBaseCPUSubscriptionDoesNotReceiveOptInPMUMetrics(t *testing.T) {
 	manager := NewManager(testCollector{}, nil)
 	defer manager.Close()
