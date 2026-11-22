@@ -548,3 +548,29 @@ func TestSampleWindowMillisecondsRequiresObservedTimestamps(t *testing.T) {
 		t.Fatalf("observed window = %dms, want 1250", got)
 	}
 }
+
+
+func TestItemsForReportsOfflineCPUsOnFirstSnapshot(t *testing.T) {
+	now := time.Now().UTC()
+	current := Snapshot{
+		CollectedAt: now,
+		AggregateStatus: StatusValid,
+		CoreAvailabilityKnown: true,
+		CoreAvailability: map[string]CoreAvailability{
+			"cpu0": {Present: true, Online: true},
+			"cpu1": {Present: true, Online: false},
+		},
+	}
+	items := itemsFor(current, nil, now)
+	for _, metricID := range []string{MetricCoreUser, MetricCoreTotalUsage, MetricCoreUsage} {
+		found := false
+		for _, item := range items {
+			if item.MetricID == metricID && item.ObjectID == "cpu1" {
+				found = item.Status == StatusUnavailable && item.Reason == "cpu_offline" && item.Value == nil
+			}
+		}
+		if !found {
+			t.Fatalf("first snapshot must report cpu1 offline for %s: %#v", metricID, items)
+		}
+	}
+}
