@@ -26,7 +26,7 @@ func (testCollector) TotalUsage(context.Context, time.Duration) (float64, error)
 
 func (testCollector) ReadFrequency(context.Context) ([]MetricItem, error) {
 	return []MetricItem{
-		{MetricID: MetricFrequencyCurrent, ObjectID: "policy0", Value: int64(1800000), Unit: "kHz"},
+		{MetricID: MetricFrequencyCurrent, ObjectID: "policy0", Value: int64(1800000000), Unit: "Hz"},
 		{MetricID: MetricFrequencyGovernor, ObjectID: "policy0", Value: "performance", Unit: "string"},
 	}, nil
 }
@@ -81,7 +81,7 @@ func TestNewCPUTargetsAreAccepted(t *testing.T) {
 
 	targets := []string{
 		MetricSoftIRQ, MetricSteal, MetricGuest, MetricGuestNice,
-		MetricCoreTotalUsage, MetricCoreUser, MetricFrequencyTarget,
+		MetricCoreTotalUsage, MetricCoreUser, MetricCoreUsage, MetricFrequencyTarget, MetricCoreFrequency,
 		MetricFrequencyCurrent, MetricFrequencyMin, MetricFrequencyMax,
 		MetricFrequencyBase, MetricFrequencyGovernor,
 		MetricCStateTarget, "system.cpu.idle.cstate.c1", MetricThrottlingTarget,
@@ -90,11 +90,125 @@ func TestNewCPUTargetsAreAccepted(t *testing.T) {
 		MetricThrottlePowerCoreEvents, MetricThrottlePowerPackageEvents,
 		MetricInterrupts, MetricContextSwitches,
 		MetricForks, MetricProcessesRunning, MetricProcessesBlocked, MetricProcessesTarget,
+		MetricRunQueue, MetricPressureTarget, MetricPressureSome, MetricPressureFull,
+		MetricPressureSomeTotal, MetricPressureFullTotal,
+		MetricPerfTarget, MetricPerfCycles, MetricPerfInstructions, MetricPerfIPC,
+		MetricPerfBranchMissRate, MetricPerfCacheMissRate,
 	}
-	for _, target := range targets {
-		if _, err := manager.Subscribe(1, target, EffectiveInterval, deliver); err != nil {
+	for index, target := range targets {
+		sessionID := int64(index + 1)
+		id, err := manager.Subscribe(sessionID, target, EffectiveInterval, deliver)
+		if err != nil {
 			t.Errorf("Subscribe(%q): %v", target, err)
+			continue
 		}
+		manager.Cancel(sessionID, id)
+	}
+}
+
+func TestValidTargetRejectsUnknownPressureAndPerfMetrics(t *testing.T) {
+	for _, target := range []string{
+		"system.cpu.pressure.unknown",
+		"system.cpu.perf.unknown",
+	} {
+		if validTarget(target) {
+			t.Errorf("unknown monitoring target %q must be rejected", target)
+		}
+	}
+}
+
+func TestMissingCStateChildReceivesUnavailableStatus(t *testing.T) {
+	manager := NewManager(testCollector{}, nil)
+	defer manager.Close()
+	target := "system.cpu.idle.cstate.c99"
+	var delivered commands.Outbound
+	deliver := func(_ context.Context, message commands.Outbound) error {
+		delivered = message
+		return nil
+	}
+	if _, err := manager.Subscribe(1, target, EffectiveInterval, deliver); err != nil {
+		t.Fatal(err)
+	}
+	manager.publish(context.Background(), []MetricItem{
+		{MetricID: "system.cpu.idle.cstate.c1", ObjectID: "cpu0", Value: int64(1000), Unit: "ns", Status: StatusValid},
+	})
+	payload, ok := delivered.Payload.(map[string]any)
+	if !ok {
+		t.Fatalf("payload = %#v, want subscription.update", delivered.Payload)
+	}
+	items, ok := payload["items"].([]MetricItem)
+	if !ok || len(items) != 1 || items[0].MetricID != target ||
+		items[0].Status != StatusUnavailable || items[0].Reason != "not_discovered" {
+		t.Fatalf("missing C-state did not receive an explicit unavailable status: %#v", payload["items"])
+	}
+}
+
+func TestBaseCPUSubscriptionDoesNotReceiveOptInPMUMetrics(t *testing.T) {
+	manager := NewManager(testCollector{}, nil)
+	defer manager.Close()
+
+	var baseItems, perfItems []MetricItem
+	baseDelivery := func(_ context.Context, message commands.Outbound) error {
+		payload := message.Payload.(map[string]any)
+		baseItems = append(baseItems, payload["items"].([]MetricItem)...)
+		return nil
+	}
+	perfDelivery := func(_ context.Context, message commands.Outbound) error {
+		payload := message.Payload.(map[string]any)
+		perfItems = append(perfItems, payload["items"].([]MetricItem)...)
+		return nil
+	}
+	if _, err := manager.Subscribe(1, Target, EffectiveInterval, baseDelivery); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Subscribe(2, MetricPerfTarget, EffectiveInterval, perfDelivery); err != nil {
+		t.Fatal(err)
+	}
+	manager.publish(context.Background(), []MetricItem{
+		{MetricID: MetricTotalUsage, Value: 25.0, Unit: "percent"},
+		{MetricID: MetricPerfCycles, Value: uint64(100), Unit: "count"},
+	})
+	if len(baseItems) != 1 || baseItems[0].MetricID != MetricTotalUsage {
+		t.Fatalf("base CPU subscription received opt-in PMU data: %#v", baseItems)
+	}
+	if len(perfItems) != 1 || perfItems[0].MetricID != MetricPerfCycles {
+		t.Fatalf("PMU subscription did not receive its selected metric: %#v", perfItems)
+	}
+}
+
+func TestIndividualCPUChildSubscriptionsReceiveGroupSourceStatus(t *testing.T) {
+	tests := []struct {
+		name string
+		target string
+		group string
+	}{
+		{name: "C-state", target: "system.cpu.idle.cstate.c1", group: MetricCStateTarget},
+		{name: "throttling", target: MetricThrottleThermalCoreEvents, group: MetricThrottlingTarget},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manager := NewManager(testCollector{}, nil)
+			defer manager.Close()
+			var delivered commands.Outbound
+			deliver := func(_ context.Context, message commands.Outbound) error {
+				delivered = message
+				return nil
+			}
+			if _, err := manager.Subscribe(1, test.target, EffectiveInterval, deliver); err != nil {
+				t.Fatal(err)
+			}
+			manager.publish(context.Background(), []MetricItem{
+				statusItem(test.group, "", StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "test.source", time.Now().UTC()),
+			})
+			payload, ok := delivered.Payload.(map[string]any)
+			if !ok {
+				t.Fatalf("payload = %#v, want subscription.update", delivered.Payload)
+			}
+			items, ok := payload["items"].([]MetricItem)
+			if !ok || len(items) != 1 || items[0].MetricID != test.target || items[0].Status != StatusUnsupported {
+				t.Fatalf("child subscription did not receive explicit source status: %#v", payload["items"])
+			}
+		})
 	}
 }
 
@@ -299,11 +413,11 @@ func TestProcessGroupSubscriptionPublishesOnlyProcessMetrics(t *testing.T) {
 		t.Fatalf("payload type = %T, want map", delivered.Payload)
 	}
 	items, ok := payload["items"].([]MetricItem)
-	if !ok || len(items) != 2 {
-		t.Fatalf("process group items = %#v, want running and blocked", payload["items"])
+	if !ok || len(items) != 3 {
+		t.Fatalf("process group items = %#v, want forks, running and blocked", payload["items"])
 	}
 	for _, item := range items {
-		if item.MetricID != MetricProcessesRunning && item.MetricID != MetricProcessesBlocked {
+		if item.MetricID != MetricForks && item.MetricID != MetricProcessesRunning && item.MetricID != MetricProcessesBlocked {
 			t.Errorf("unexpected metric %q in process group", item.MetricID)
 		}
 	}
@@ -353,5 +467,110 @@ func TestIndividualFrequencySubscriptionFiltersMetrics(t *testing.T) {
 	items := payload["items"].([]MetricItem)
 	if len(items) != 1 || items[0].MetricID != MetricFrequencyGovernor {
 		t.Fatalf("individual frequency items = %#v, want governor only", items)
+	}
+}
+
+
+func TestItemsForDistinguishesOfflineMissingAndUnavailableCPUs(t *testing.T) {
+	now := time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)
+	previous := Snapshot{
+		CollectedAt: now.Add(-time.Second),
+		AggregateStatus: StatusValid,
+		Cores: []CoreCounters{
+			{ObjectID: "cpu0", Counters: Counters{TotalSeconds: 10, UserSeconds: 5, IdleSeconds: 5}},
+			{ObjectID: "cpu1", Counters: Counters{TotalSeconds: 10, UserSeconds: 5, IdleSeconds: 5}},
+			{ObjectID: "cpu3", Counters: Counters{TotalSeconds: 10, UserSeconds: 5, IdleSeconds: 5}},
+			{ObjectID: "cpu4", Counters: Counters{TotalSeconds: 10, UserSeconds: 5, IdleSeconds: 5}},
+		},
+	}
+	current := Snapshot{
+		CollectedAt: now,
+		AggregateStatus: StatusValid,
+		Cores: []CoreCounters{
+			{ObjectID: "cpu0", Counters: Counters{TotalSeconds: 20, UserSeconds: 10, IdleSeconds: 10}},
+		},
+		CoreAvailabilityKnown: true,
+		CoreAvailability: map[string]CoreAvailability{
+			"cpu0": {Present: true, Online: true},
+			"cpu1": {Present: true, Online: false},
+			"cpu2": {Present: true, Online: true},
+			"cpu4": {Present: true, Online: true},
+		},
+	}
+
+	items := itemsFor(current, &previous, now)
+	assertCoreStatus := func(cpuID, metricID, status, reason string) {
+		t.Helper()
+		for _, item := range items {
+			if item.MetricID == metricID && item.ObjectID == cpuID {
+				if item.Status != status || item.Reason != reason || item.Value != nil {
+					t.Fatalf("%s/%s = %#v, want status=%s reason=%s without value", cpuID, metricID, item, status, reason)
+				}
+				return
+			}
+		}
+		t.Fatalf("missing %s/%s status item in %#v", cpuID, metricID, items)
+	}
+
+	assertCoreStatus("cpu1", MetricCoreUser, StatusUnavailable, "cpu_offline")
+	assertCoreStatus("cpu1", MetricCoreTotalUsage, StatusUnavailable, "cpu_offline")
+	assertCoreStatus("cpu1", MetricCoreUsage, StatusUnavailable, "cpu_offline")
+	assertCoreStatus("cpu3", MetricCoreUser, StatusUnavailable, "not_present")
+	assertCoreStatus("cpu4", MetricCoreUser, StatusUnavailable, "source_failure")
+}
+
+func TestApplyCoreAvailabilityOverridesUnexpectedOfflineCoreSample(t *testing.T) {
+	now := time.Now().UTC()
+	current := Snapshot{
+		CollectedAt: now,
+		Cores: []CoreCounters{{ObjectID: "cpu2", Counters: Counters{UserSeconds: 1}}},
+		CoreAvailabilityKnown: true,
+		CoreAvailability: map[string]CoreAvailability{
+			"cpu2": {Present: true, Online: false},
+		},
+	}
+	items := applyCoreAvailability(coreUserItems(current.Cores, now), current, nil)
+	if len(items) != 1 || items[0].Status != StatusUnavailable || items[0].Reason != "cpu_offline" || items[0].Value != nil {
+		t.Fatalf("offline CPU must not be emitted as a valid counter: %#v", items)
+	}
+}
+
+
+func TestSampleWindowMillisecondsRequiresObservedTimestamps(t *testing.T) {
+	now := time.Now().UTC()
+	if got := sampleWindowMilliseconds(Snapshot{}, Snapshot{CollectedAt: now}); got != 0 {
+		t.Fatalf("missing start timestamp produced synthetic window %dms", got)
+	}
+	if got := sampleWindowMilliseconds(Snapshot{CollectedAt: now}, Snapshot{}); got != 0 {
+		t.Fatalf("missing end timestamp produced synthetic window %dms", got)
+	}
+	if got := sampleWindowMilliseconds(Snapshot{CollectedAt: now}, Snapshot{CollectedAt: now.Add(1250 * time.Millisecond)}); got != 1250 {
+		t.Fatalf("observed window = %dms, want 1250", got)
+	}
+}
+
+
+func TestItemsForReportsOfflineCPUsOnFirstSnapshot(t *testing.T) {
+	now := time.Now().UTC()
+	current := Snapshot{
+		CollectedAt: now,
+		AggregateStatus: StatusValid,
+		CoreAvailabilityKnown: true,
+		CoreAvailability: map[string]CoreAvailability{
+			"cpu0": {Present: true, Online: true},
+			"cpu1": {Present: true, Online: false},
+		},
+	}
+	items := itemsFor(current, nil, now)
+	for _, metricID := range []string{MetricCoreUser, MetricCoreTotalUsage, MetricCoreUsage} {
+		found := false
+		for _, item := range items {
+			if item.MetricID == metricID && item.ObjectID == "cpu1" {
+				found = item.Status == StatusUnavailable && item.Reason == "cpu_offline" && item.Value == nil
+			}
+		}
+		if !found {
+			t.Fatalf("first snapshot must report cpu1 offline for %s: %#v", metricID, items)
+		}
 	}
 }

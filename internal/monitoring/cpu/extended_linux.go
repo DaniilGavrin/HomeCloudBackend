@@ -27,60 +27,120 @@ func (c *SystemCollector) ReadThrottling(ctx context.Context) ([]MetricItem, err
 	return readLinuxThrottling(ctx, defaultSysfsCPUPath)
 }
 
-func (c *SystemCollector) ReadSystemCounters(ctx context.Context) ([]MetricItem, error) {
-	return readLinuxSystemCounters(ctx, defaultProcStatPath)
-}
-
 // readLinuxCStates reads cpuidle residency counters. Linux exports time in
 // microseconds; HomeCloud's canonical duration unit is nanoseconds.
 func readLinuxCStates(ctx context.Context, cpuSysfsPath string) ([]MetricItem, error) {
+	now := time.Now().UTC()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if runtime.GOOS != "linux" {
-		return nil, ErrMetricUnsupported
+		return []MetricItem{statusItem(MetricCStateTarget, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "platform.cpuidle", now)}, nil
 	}
+	availability, availabilityKnown := readLinuxCoreAvailability(cpuSysfsPath)
 	pattern := filepath.Join(cpuSysfsPath, "cpu[0-9]*", "cpuidle", "state[0-9]*")
 	states, err := filepath.Glob(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("list CPU idle states: %w", err)
+		status, reason, code := classifySourceError(err)
+		return []MetricItem{statusItem(MetricCStateTarget, "", status, reason, code, "linux.host.sysfs.cpuidle", now)}, nil
 	}
 	sort.Strings(states)
+	if len(states) == 0 {
+		items := []MetricItem{statusItem(MetricCStateTarget, "", StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.cpuidle", now)}
+		if availabilityKnown {
+			for _, cpuName := range sortedCoreAvailabilityIDs(availability) {
+				state := availability[cpuName]
+				status, reason, code, sourceID := StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.cpuidle"
+				if !state.Online {
+					status, reason, code, sourceID = StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu"
+				}
+				items = append(items, statusItem(MetricCStateTarget, cpuName, status, reason, code, sourceID, now))
+			}
+		}
+		return items, nil
+	}
 	items := make([]MetricItem, 0, len(states))
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	seenCPUs := make(map[string]bool)
 	for _, statePath := range states {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		name, err := readSysfsValue(filepath.Join(statePath, "name"))
-		if err != nil || strings.TrimSpace(name) == "" {
-			continue
-		}
-		timeText, err := readSysfsValue(filepath.Join(statePath, "time"))
-		if err != nil {
-			continue
-		}
-		microseconds, err := strconv.ParseUint(timeText, 10, 64)
-		if err != nil || microseconds > math.MaxInt64/uint64(time.Microsecond) {
-			continue
-		}
 		cpuDir := filepath.Dir(filepath.Dir(statePath))
 		cpuID := filepath.Base(cpuDir)
 		stateID := filepath.Base(statePath)
-		suffix := metricSlug(name)
-		if suffix == "" {
-			suffix = stateID
+		objectID := cpuID + "/" + stateID
+		seenCPUs[cpuID] = true
+		name, nameErr := readSysfsValue(filepath.Join(statePath, "name"))
+		if nameErr != nil || strings.TrimSpace(name) == "" {
+			if availabilityKnown {
+				if state, exists := availability[cpuID]; !exists || !state.Present {
+					items = append(items, statusItem(MetricCStateTarget, objectID, StatusUnavailable, "not_present", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu", now))
+					continue
+				} else if !state.Online {
+					items = append(items, statusItem(MetricCStateTarget, objectID, StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu", now))
+					continue
+				}
+			}
+			if nameErr == nil {
+				nameErr = errors.New("cpuidle state name is empty")
+			}
+			status, reason, code := classifySourceError(nameErr)
+			items = append(items, statusItem(MetricCStateTarget, objectID, status, reason, code, "linux.host.sysfs.cpuidle", now))
+			continue
+		}
+		metricID := MetricCStateTarget + "." + metricSlug(name)
+		if metricID == MetricCStateTarget+"." {
+			metricID = MetricCStateTarget + "." + stateID
+		}
+		if availabilityKnown {
+			state, exists := availability[cpuID]
+			if !exists || !state.Present {
+				items = append(items, statusItem(metricID, objectID, StatusUnavailable, "not_present", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu", now))
+				continue
+			}
+			if !state.Online {
+				items = append(items, statusItem(metricID, objectID, StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu", now))
+				continue
+			}
+		}
+		timeText, readErr := readSysfsValue(filepath.Join(statePath, "time"))
+		if readErr != nil {
+			status, reason, code := classifySourceError(readErr)
+			if errors.Is(readErr, os.ErrNotExist) {
+				status, reason, code = StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED"
+			}
+			items = append(items, statusItem(metricID, objectID, status, reason, code, "linux.host.sysfs.cpuidle", now))
+			continue
+		}
+		microseconds, parseErr := strconv.ParseUint(timeText, 10, 64)
+		if parseErr != nil || microseconds > math.MaxInt64/uint64(time.Microsecond) {
+			items = append(items, statusItem(metricID, objectID, StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.host.sysfs.cpuidle", now))
+			continue
 		}
 		items = append(items, MetricItem{
-			MetricID: MetricCStateTarget + "." + suffix,
-			ObjectID: cpuID + "/" + stateID,
+			MetricID: metricID, ObjectID: objectID,
 			Value: int64(microseconds * uint64(time.Microsecond)),
-			Unit: "ns",
-			ObservedAt: now,
+			Unit: "ns", ObservedAt: now.Format(time.RFC3339Nano),
+			Status: StatusValid, SourceID: "linux.host.sysfs.cpuidle",
 		})
 	}
-	if len(items) == 0 {
-		return nil, ErrMetricUnsupported
+	if presentText, presentErr := readSysfsValue(filepath.Join(cpuSysfsPath, "present")); presentErr == nil {
+		if cpuIDs, parseErr := parseCPUList(presentText); parseErr == nil {
+			for _, cpuID := range cpuIDs {
+				cpuName := fmt.Sprintf("cpu%d", cpuID)
+				if !seenCPUs[cpuName] {
+					status, reason, code, sourceID := StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.cpuidle"
+					if availabilityKnown {
+						if state, exists := availability[cpuName]; !exists || !state.Present {
+							status, reason, code, sourceID = StatusUnavailable, "not_present", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu"
+						} else if !state.Online {
+							status, reason, code, sourceID = StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu"
+						}
+					}
+					items = append(items, statusItem(MetricCStateTarget, cpuName, status, reason, code, sourceID, now))
+				}
+			}
+		}
 	}
 	return items, nil
 }
@@ -107,28 +167,31 @@ func metricSlug(value string) string {
 // exports them. Core-level counters remain scoped to each logical CPU; package
 // counters are emitted once per physical package because they are broadcast.
 func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem, error) {
+	now := time.Now().UTC()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if runtime.GOOS != "linux" {
-		return nil, ErrMetricUnsupported
+		return []MetricItem{statusItem(MetricThrottlingTarget, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "platform.cpu.throttling", now)}, nil
 	}
 	presentText, err := readSysfsValue(filepath.Join(cpuSysfsPath, "present"))
 	if err != nil {
-		return nil, fmt.Errorf("read present CPU list for throttling: %w", err)
+		status, reason, code := classifySourceError(err)
+		return []MetricItem{statusItem(MetricThrottlingTarget, "", status, reason, code, "linux.host.sysfs.thermal_throttle", now)}, nil
 	}
 	cpuIDs, err := parseCPUList(presentText)
 	if err != nil {
-		return nil, fmt.Errorf("parse present CPU list for throttling: %w", err)
+		return []MetricItem{statusItem(MetricThrottlingTarget, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.host.sysfs.thermal_throttle", now)}, nil
+	}
+	if len(cpuIDs) == 0 {
+		return []MetricItem{statusItem(MetricThrottlingTarget, "", StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "linux.host.sysfs.thermal_throttle", now)}, nil
 	}
 	sort.Ints(cpuIDs)
+	availability, availabilityKnown := readLinuxCoreAvailability(cpuSysfsPath)
 
-	seenPackageEvents := make(map[string]bool)
-	seenPackageDuration := make(map[string]bool)
-	seenPackagePowerEvents := make(map[string]bool)
-	items := make([]MetricItem, 0, len(cpuIDs)*5)
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-
+	packagePaths := make(map[string]string)
+	packageIDs := make(map[string]bool)
+	items := make([]MetricItem, 0, len(cpuIDs)*5+len(cpuIDs)*2+8)
 	for _, id := range cpuIDs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -141,67 +204,123 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 		packageKnown := packageErr == nil && packageParseErr == nil && packageNumber >= 0
 		if packageKnown {
 			packageID = strconv.Itoa(packageNumber)
+			packageIDs[packageID] = true
 		}
+
 		throttlePath := filepath.Join(cpuPath, "thermal_throttle")
-
-		// The kernel keeps core-level throttle/power counters per logical CPU.
-		// Preserve each CPU's own counters instead of collapsing SMT siblings.
-		appendThrottleCounter(&items, throttlePath, "core_throttle_count",
-			MetricThrottleThermalCoreEvents, cpuName, "count", 1, now)
-		appendThrottleCounter(&items, throttlePath, "core_throttle_total_time_ms",
-			MetricThrottleThermalCoreDuration, cpuName, "ns", uint64(time.Millisecond), now)
-		appendThrottleCounter(&items, throttlePath, "core_power_limit_count",
-			MetricThrottlePowerCoreEvents, cpuName, "count", 1, now)
-
-		// Package-level counters are broadcast to every CPU in the package.
-		// Emit one copy per package to avoid multiplying the same counter.
+		if availabilityKnown {
+			state, exists := availability[cpuName]
+			if !exists || !state.Present {
+				for _, metricID := range []string{
+					MetricThrottleThermalCoreEvents, MetricThrottleThermalCoreDuration,
+					MetricThrottlePowerCoreEvents, MetricThrottlePowerCoreDuration, MetricThrottleActive,
+				} {
+					items = append(items, statusItem(metricID, cpuName, StatusUnavailable, "not_present", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu", now))
+				}
+				continue
+			}
+			if !state.Online {
+				for _, metricID := range []string{
+					MetricThrottleThermalCoreEvents, MetricThrottleThermalCoreDuration,
+					MetricThrottlePowerCoreEvents, MetricThrottlePowerCoreDuration, MetricThrottleActive,
+				} {
+					items = append(items, statusItem(metricID, cpuName, StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu", now))
+				}
+				if packageKnown {
+					if _, statErr := os.Stat(throttlePath); statErr == nil {
+						if _, exists := packagePaths[packageID]; !exists {
+							packagePaths[packageID] = throttlePath
+						}
+					}
+				}
+				continue
+			}
+		}
+		if _, statErr := os.Stat(throttlePath); statErr != nil {
+			status, reason, code := classifySourceError(statErr)
+			if errors.Is(statErr, os.ErrNotExist) {
+				status, reason, code = StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED"
+			}
+			items = append(items,
+				statusItem(MetricThrottleThermalCoreEvents, cpuName, status, reason, code, "linux.host.sysfs.thermal_throttle", now),
+				statusItem(MetricThrottleThermalCoreDuration, cpuName, status, reason, code, "linux.host.sysfs.thermal_throttle", now),
+				statusItem(MetricThrottlePowerCoreEvents, cpuName, status, reason, code, "linux.host.sysfs.thermal_throttle", now),
+				statusItem(MetricThrottlePowerCoreDuration, cpuName, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.thermal_throttle", now),
+				statusItem(MetricThrottleActive, cpuName, StatusUnsupported, "active_state_not_exposed", "METRIC_UNSUPPORTED", "linux.host.sysfs.thermal_throttle", now),
+			)
+			continue
+		}
+		items = append(items,
+			appendThrottleCounter(throttlePath, "core_throttle_count", MetricThrottleThermalCoreEvents, cpuName, "count", 1, now),
+			appendThrottleCounter(throttlePath, "core_throttle_total_time_ms", MetricThrottleThermalCoreDuration, cpuName, "ns", uint64(time.Millisecond), now),
+			appendThrottleCounter(throttlePath, "core_power_limit_count", MetricThrottlePowerCoreEvents, cpuName, "count", 1, now),
+			statusItem(MetricThrottlePowerCoreDuration, cpuName, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.thermal_throttle", now),
+			statusItem(MetricThrottleActive, cpuName, StatusUnsupported, "active_state_not_exposed", "METRIC_UNSUPPORTED", "linux.host.sysfs.thermal_throttle", now),
+		)
 		if packageKnown {
-			packageObjectID := "package" + packageID
-			if !seenPackageEvents[packageID] {
-				appendThrottleCounter(&items, throttlePath, "package_throttle_count",
-					MetricThrottleThermalPackageEvents, packageObjectID, "count", 1, now)
-				seenPackageEvents[packageID] = hasThrottleObject(items, MetricThrottleThermalPackageEvents, packageObjectID)
-			}
-			if !seenPackageDuration[packageID] {
-				appendThrottleCounter(&items, throttlePath, "package_throttle_total_time_ms",
-					MetricThrottleThermalPackageDuration, packageObjectID, "ns", uint64(time.Millisecond), now)
-				seenPackageDuration[packageID] = hasThrottleObject(items, MetricThrottleThermalPackageDuration, packageObjectID)
-			}
-			if !seenPackagePowerEvents[packageID] {
-				appendThrottleCounter(&items, throttlePath, "package_power_limit_count",
-					MetricThrottlePowerPackageEvents, packageObjectID, "count", 1, now)
-				seenPackagePowerEvents[packageID] = hasThrottleObject(items, MetricThrottlePowerPackageEvents, packageObjectID)
+			if _, exists := packagePaths[packageID]; !exists {
+				packagePaths[packageID] = throttlePath
 			}
 		}
 	}
-	if len(items) == 0 {
-		return nil, ErrMetricUnsupported
+
+	packageKeys := make([]string, 0, len(packageIDs))
+	for packageID := range packageIDs {
+		packageKeys = append(packageKeys, packageID)
+	}
+	sort.Strings(packageKeys)
+	for _, packageID := range packageKeys {
+		objectID := "package" + packageID
+		throttlePath, ok := packagePaths[packageID]
+		if !ok {
+			items = append(items,
+				statusItem(MetricThrottleThermalPackageEvents, objectID, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.thermal_throttle", now),
+				statusItem(MetricThrottleThermalPackageDuration, objectID, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.thermal_throttle", now),
+				statusItem(MetricThrottlePowerPackageEvents, objectID, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.thermal_throttle", now),
+				statusItem(MetricThrottlePowerPackageDuration, objectID, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.thermal_throttle", now),
+			)
+			continue
+		}
+		items = append(items,
+			appendThrottleCounter(throttlePath, "package_throttle_count", MetricThrottleThermalPackageEvents, objectID, "count", 1, now),
+			appendThrottleCounter(throttlePath, "package_throttle_total_time_ms", MetricThrottleThermalPackageDuration, objectID, "ns", uint64(time.Millisecond), now),
+			appendThrottleCounter(throttlePath, "package_power_limit_count", MetricThrottlePowerPackageEvents, objectID, "count", 1, now),
+			statusItem(MetricThrottlePowerPackageDuration, objectID, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.thermal_throttle", now),
+		)
+	}
+	if len(packageKeys) == 0 {
+		for _, metricID := range []string{MetricThrottleThermalPackageEvents, MetricThrottleThermalPackageDuration, MetricThrottlePowerPackageEvents, MetricThrottlePowerPackageDuration} {
+			items = append(items, statusItem(metricID, "", StatusUnsupported, "package_topology_unavailable", "METRIC_UNSUPPORTED", "linux.host.sysfs.thermal_throttle", now))
+		}
 	}
 	return items, nil
 }
 
-func appendThrottleCounter(items *[]MetricItem, dir, filename, metricID, objectID, unit string, scale uint64, observedAt string) {
+func appendThrottleCounter(dir, filename, metricID, objectID, unit string, scale uint64, observedAt time.Time) MetricItem {
+	sourceID := "linux.host.sysfs.thermal_throttle"
 	valueText, err := readSysfsValue(filepath.Join(dir, filename))
 	if err != nil {
-		return
+		status, reason, code := classifySourceError(err)
+		if errors.Is(err, os.ErrNotExist) {
+			status, reason, code = StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED"
+		}
+		return statusItem(metricID, objectID, status, reason, code, sourceID, observedAt)
 	}
 	value, err := strconv.ParseUint(valueText, 10, 64)
 	if err != nil {
-		return
+		return statusItem(metricID, objectID, StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", sourceID, observedAt)
 	}
-	var normalized any
-	if unit == "count" {
-		normalized = value
-	} else {
+	var normalized any = value
+	if unit != "count" {
 		if scale == 0 || value > math.MaxInt64/scale {
-			return
+			return statusItem(metricID, objectID, StatusInvalid, "overflow", "SOURCE_INVALID_DATA", sourceID, observedAt)
 		}
 		normalized = int64(value * scale)
 	}
-	*items = append(*items, MetricItem{
-		MetricID: metricID, ObjectID: objectID,
-		Value: normalized, Unit: unit, ObservedAt: observedAt,
-	})
+	return MetricItem{
+		MetricID: metricID, ObjectID: objectID, Value: normalized, Unit: unit,
+		ObservedAt: observedAt.Format(time.RFC3339Nano), Status: StatusValid, SourceID: sourceID,
+	}
 }
 
 func hasThrottleObject(items []MetricItem, metricID, objectID string) bool {
@@ -213,24 +332,46 @@ func hasThrottleObject(items []MetricItem, metricID, objectID string) bool {
 	return false
 }
 
-// readLinuxSystemCounters reads host-wide cumulative counters and scheduler
-// gauges from /proc/stat. The Linux "processes" field counts tasks created
-// since boot (including clone-created tasks); procs_running and procs_blocked
-// are instantaneous task counts. Rates are intentionally not calculated here.
+// readLinuxSystemCounters reads host-wide cumulative counters and process
+// state gauges from /proc/stat. procs_running includes tasks currently running
+// or runnable; it is not the waiting-only system.cpu.runqueue metric.
 func readLinuxSystemCounters(ctx context.Context, procStatPath string) ([]MetricItem, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if runtime.GOOS != "linux" {
-		return nil, ErrMetricUnsupported
+		now := time.Now().UTC()
+		items := make([]MetricItem, 0, 5)
+		for _, metricID := range []string{MetricInterrupts, MetricContextSwitches, MetricForks, MetricProcessesRunning, MetricProcessesBlocked} {
+			items = append(items, statusItem(metricID, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "platform.proc.stat", now))
+		}
+		return items, nil
 	}
+	now := time.Now().UTC()
 	file, err := os.Open(procStatPath)
 	if err != nil {
-		return nil, fmt.Errorf("open proc stat: %w", err)
+		status, reason, code := classifySourceError(err)
+		items := make([]MetricItem, 0, 5)
+		for _, metricID := range []string{MetricInterrupts, MetricContextSwitches, MetricForks, MetricProcessesRunning, MetricProcessesBlocked} {
+			items = append(items, statusItem(metricID, "", status, reason, code, "linux.host.proc.stat", now))
+		}
+		return items, nil
 	}
 	defer file.Close()
 
+	type counterSpec struct {
+		key string
+		metricID string
+	}
+	specs := []counterSpec{
+		{key: "intr", metricID: MetricInterrupts},
+		{key: "ctxt", metricID: MetricContextSwitches},
+		{key: "processes", metricID: MetricForks},
+		{key: "procs_running", metricID: MetricProcessesRunning},
+		{key: "procs_blocked", metricID: MetricProcessesBlocked},
+	}
 	values := make(map[string]uint64, 5)
+	invalid := make(map[string]bool, 5)
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
@@ -245,37 +386,40 @@ func readLinuxSystemCounters(ctx context.Context, procStatPath string) ([]Metric
 		case "intr", "ctxt", "processes", "procs_running", "procs_blocked":
 			value, parseErr := strconv.ParseUint(fields[1], 10, 64)
 			if parseErr != nil {
-				return nil, fmt.Errorf("parse /proc/stat %s counter: %w", fields[0], parseErr)
+				invalid[fields[0]] = true
+				continue
 			}
 			values[fields[0]] = value
 		}
-		if len(values) == 5 {
+		if len(values)+len(invalid) >= 5 {
 			break
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("read proc stat: %w", err)
-	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	items := make([]MetricItem, 0, 5)
-	for _, counter := range []struct {
-		key      string
-		metricID string
-	}{
-		{key: "intr", metricID: MetricInterrupts},
-		{key: "ctxt", metricID: MetricContextSwitches},
-		{key: "processes", metricID: MetricForks},
-		{key: "procs_running", metricID: MetricProcessesRunning},
-		{key: "procs_blocked", metricID: MetricProcessesBlocked},
-	} {
-		if value, ok := values[counter.key]; ok {
-			items = append(items, MetricItem{
-				MetricID: counter.metricID, Value: value, Unit: "count", ObservedAt: now,
-			})
+	if scanErr := scanner.Err(); scanErr != nil {
+		status, reason, code := classifySourceError(scanErr)
+		items := make([]MetricItem, 0, len(specs))
+		for _, spec := range specs {
+			items = append(items, statusItem(spec.metricID, "", status, reason, code, "linux.host.proc.stat", now))
 		}
+		return items, nil
 	}
-	if len(items) == 0 {
-		return nil, errors.Join(ErrMetricUnsupported, errors.New("/proc/stat does not expose supported CPU counters"))
+
+	items := make([]MetricItem, 0, len(specs))
+	for _, spec := range specs {
+		if invalid[spec.key] {
+			items = append(items, statusItem(spec.metricID, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.host.proc.stat", now))
+			continue
+		}
+		value, ok := values[spec.key]
+		if !ok {
+			items = append(items, statusItem(spec.metricID, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "linux.host.proc.stat", now))
+			continue
+		}
+		items = append(items, MetricItem{
+			MetricID: spec.metricID, Value: value, Unit: "count",
+			ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid,
+			SourceID: "linux.host.proc.stat",
+		})
 	}
 	return items, nil
 }

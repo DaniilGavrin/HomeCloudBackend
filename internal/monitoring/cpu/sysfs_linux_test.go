@@ -22,7 +22,11 @@ func TestParseCPUList(t *testing.T) {
 			t.Fatalf("parsed CPU list = %v, want %v", got, want)
 		}
 	}
-	for _, invalid := range []string{"", "2-1", "a", "0-99999", "1,,2"} {
+	whitespace, err := parseCPUList("0 1 3-4")
+	if err != nil || len(whitespace) != 4 || whitespace[0] != 0 || whitespace[3] != 4 {
+		t.Fatalf("whitespace-separated CPU list = %v, err=%v", whitespace, err)
+	}
+	for _, invalid := range []string{"", "2-1", "a", "0-99999", "1,,2", "0,0"} {
 		if _, err := parseCPUList(invalid); err == nil {
 			t.Errorf("parseCPUList(%q) succeeded, want error", invalid)
 		}
@@ -36,6 +40,7 @@ func TestReadLinuxFrequencyPolicies(t *testing.T) {
 	root := t.TempDir()
 	policy := filepath.Join(root, "cpufreq", "policy0")
 	writeSysfsTestFile(t, filepath.Join(policy, "scaling_cur_freq"), "1800000\n")
+	writeSysfsTestFile(t, filepath.Join(policy, "affected_cpus"), "0 1")
 	writeSysfsTestFile(t, filepath.Join(policy, "cpuinfo_min_freq"), "800000\n")
 	writeSysfsTestFile(t, filepath.Join(policy, "cpuinfo_max_freq"), "3200000\n")
 	writeSysfsTestFile(t, filepath.Join(policy, "base_frequency"), "2400000\n")
@@ -45,14 +50,15 @@ func TestReadLinuxFrequencyPolicies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 5 {
-		t.Fatalf("frequency items = %d, want 5: %#v", len(items), items)
+	if len(items) != 8 {
+		t.Fatalf("frequency items = %d, want 8 including canonical/current aliases and two per-core values: %#v", len(items), items)
 	}
 	expected := map[string]any{
-		MetricFrequencyCurrent: int64(1800000),
-		MetricFrequencyMin: int64(800000),
-		MetricFrequencyMax: int64(3200000),
-		MetricFrequencyBase: int64(2400000),
+		MetricFrequencyTarget: int64(1800000000),
+		MetricFrequencyCurrent: int64(1800000000),
+		MetricFrequencyMin: int64(800000000),
+		MetricFrequencyMax: int64(3200000000),
+		MetricFrequencyBase: int64(2400000000),
 		MetricFrequencyGovernor: "performance",
 	}
 	for metricID, value := range expected {
@@ -61,8 +67,18 @@ func TestReadLinuxFrequencyPolicies(t *testing.T) {
 			t.Errorf("missing %s for policy0", metricID)
 			continue
 		}
-		if item.Value != value {
-			t.Errorf("%s value = %#v, want %#v", metricID, item.Value, value)
+		wantUnit := "Hz"
+		if metricID == MetricFrequencyGovernor {
+			wantUnit = "string"
+		}
+		if item.Value != value || item.Unit != wantUnit {
+			t.Errorf("%s value/unit = %#v/%q, want %#v/%s", metricID, item.Value, item.Unit, value, wantUnit)
+		}
+	}
+	for _, cpuID := range []string{"cpu0", "cpu1"} {
+		coreFrequency, ok := findMetric(items, MetricCoreFrequency, cpuID)
+		if !ok || coreFrequency.Value != nil || coreFrequency.Unit != "" || coreFrequency.Status != StatusUnavailable || coreFrequency.Reason != "shared_policy_not_per_core" {
+			t.Fatalf("shared policy must not be reported as independent core frequency for %s: %#v, found=%v", cpuID, coreFrequency, ok)
 		}
 	}
 }
@@ -79,8 +95,8 @@ func TestReadLinuxFrequencyUsesBaseFrequencyFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	item, ok := findMetric(items, MetricFrequencyBase, "policy2")
-	if !ok || item.Value != int64(2100000) {
-		t.Fatalf("base frequency = %#v, found=%v; want 2100000 kHz", item, ok)
+	if !ok || item.Value != int64(2100000000) {
+		t.Fatalf("base frequency = %#v, found=%v; want 2100000000 Hz", item, ok)
 	}
 }
 
@@ -161,4 +177,151 @@ func itoa(value int) string {
 		value /= 10
 	}
 	return string(buf[i:])
+}
+
+func TestFrequencyPolicyCPUResolution(t *testing.T) {
+	root := t.TempDir()
+	policy0 := filepath.Join(root, "cpufreq", "policy0")
+	policy1 := filepath.Join(root, "cpufreq", "policy1")
+	policy2 := filepath.Join(root, "cpufreq", "policy2")
+	writeSysfsTestFile(t, filepath.Join(policy0, "affected_cpus"), "0 1")
+	writeSysfsTestFile(t, filepath.Join(policy1, "related_cpus"), "2-3")
+	writeSysfsTestFile(t, filepath.Join(policy2, "affected_cpus"), "")
+	writeSysfsTestFile(t, filepath.Join(policy2, "related_cpus"), "4")
+
+	if got := frequencyPoliciesForCPU(root, 1); len(got) != 1 || got[0] != "policy0" {
+		t.Fatalf("policies for cpu1 = %v, want [policy0]", got)
+	}
+	if got := cpusForFrequencyPolicy(root, "policy1"); len(got) != 2 || got[0] != 2 || got[1] != 3 {
+		t.Fatalf("CPUs for policy1 = %v, want [2 3]", got)
+	}
+	if got := frequencyPoliciesForCPU(root, 4); len(got) != 1 || got[0] != "policy2" {
+		t.Fatalf("policies for cpu4 = %v, want [policy2] via related_cpus fallback", got)
+	}
+	if got := cpusForFrequencyPolicy(root, "policy2"); len(got) != 1 || got[0] != 4 {
+		t.Fatalf("CPUs for policy2 = %v, want [4] via related_cpus fallback", got)
+	}
+	if isFrequencyDomainID("cpu1") || !isFrequencyDomainID("policy1") {
+		t.Fatal("frequency-domain validation accepted invalid policy ID or rejected policy1")
+	}
+}
+
+func TestReadLinuxFrequencyReportsExactCurrentFrequencySource(t *testing.T) {
+	root := t.TempDir()
+	policy := filepath.Join(root, "cpufreq", "policy0")
+	writeSysfsTestFile(t, filepath.Join(policy, "affected_cpus"), "0-1")
+	writeSysfsTestFile(t, filepath.Join(policy, "scaling_cur_freq"), "2500000")
+	writeSysfsTestFile(t, filepath.Join(policy, "cpuinfo_min_freq"), "800000")
+	writeSysfsTestFile(t, filepath.Join(policy, "cpuinfo_max_freq"), "4000000")
+	writeSysfsTestFile(t, filepath.Join(policy, "base_frequency"), "3000000")
+	writeSysfsTestFile(t, filepath.Join(policy, "scaling_governor"), "schedutil")
+
+	items, err := readLinuxFrequency(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, ok := findMetric(items, MetricFrequencyCurrent, "policy0")
+	if !ok || current.Value != int64(2_500_000_000) || current.SourceID != "linux.host.sysfs.cpufreq.scaling_cur_freq" {
+		t.Fatalf("current policy frequency = %#v (found=%v)", current, ok)
+	}
+	core, ok := findMetric(items, MetricCoreFrequency, "cpu0")
+	if !ok || core.Value != nil || core.Status != StatusUnavailable || core.Reason != "shared_policy_not_per_core" {
+		t.Fatalf("shared policy must not be reported as a per-core frequency: %#v (found=%v)", core, ok)
+	}
+
+	if err := os.Remove(filepath.Join(policy, "scaling_cur_freq")); err != nil {
+		t.Fatal(err)
+	}
+	writeSysfsTestFile(t, filepath.Join(policy, "cpuinfo_cur_freq"), "2600000")
+	items, err = readLinuxFrequency(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, ok = findMetric(items, MetricFrequencyCurrent, "policy0")
+	if !ok || current.Value != int64(2_600_000_000) || current.SourceID != "linux.host.sysfs.cpufreq.cpuinfo_cur_freq" {
+		t.Fatalf("fallback current policy frequency = %#v (found=%v)", current, ok)
+	}
+	core, ok = findMetric(items, MetricCoreFrequency, "cpu0")
+	if !ok || core.Value != nil || core.Status != StatusUnavailable || core.Reason != "shared_policy_not_per_core" {
+		t.Fatalf("fallback shared policy must not be reported as a per-core frequency: %#v (found=%v)", core, ok)
+	}
+}
+
+
+func TestReadLinuxCoreAvailability(t *testing.T) {
+	root := t.TempDir()
+	writeSysfsTestFile(t, filepath.Join(root, "present"), "0-3")
+	writeSysfsTestFile(t, filepath.Join(root, "online"), "0,2")
+	availability, known := readLinuxCoreAvailability(root)
+	if !known {
+		t.Fatal("expected CPU availability to be known")
+	}
+	if availability["cpu0"] != (CoreAvailability{Present: true, Online: true}) {
+		t.Fatalf("cpu0 availability = %#v", availability["cpu0"])
+	}
+	if availability["cpu1"] != (CoreAvailability{Present: true, Online: false}) {
+		t.Fatalf("cpu1 availability = %#v", availability["cpu1"])
+	}
+	if availability["cpu2"] != (CoreAvailability{Present: true, Online: true}) {
+		t.Fatalf("cpu2 availability = %#v", availability["cpu2"])
+	}
+	if availability["cpu3"] != (CoreAvailability{Present: true, Online: false}) {
+		t.Fatalf("cpu3 availability = %#v", availability["cpu3"])
+	}
+}
+
+func TestReadLinuxCoreAvailabilityRejectsInconsistentOnlineSet(t *testing.T) {
+	root := t.TempDir()
+	writeSysfsTestFile(t, filepath.Join(root, "present"), "0-1")
+	writeSysfsTestFile(t, filepath.Join(root, "online"), "0-2")
+	if _, known := readLinuxCoreAvailability(root); known {
+		t.Fatal("online CPU outside present set must not produce trusted availability")
+	}
+}
+
+
+func TestReadLinuxFrequencyReportsOfflineCPUSeparatelyFromSharedPolicy(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux cpufreq sysfs only")
+	}
+	root := t.TempDir()
+	policy := filepath.Join(root, "cpufreq", "policy0")
+	writeSysfsTestFile(t, filepath.Join(root, "present"), "0-1")
+	writeSysfsTestFile(t, filepath.Join(root, "online"), "0")
+	writeSysfsTestFile(t, filepath.Join(policy, "affected_cpus"), "0-1")
+	writeSysfsTestFile(t, filepath.Join(policy, "scaling_cur_freq"), "2200000")
+
+	items, err := readLinuxFrequency(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	online, ok := findMetric(items, MetricCoreFrequency, "cpu0")
+	if !ok || online.Status != StatusUnavailable || online.Reason != "shared_policy_not_per_core" {
+		t.Fatalf("online CPU shared-policy status = %#v, found=%v", online, ok)
+	}
+	offline, ok := findMetric(items, MetricCoreFrequency, "cpu1")
+	if !ok || offline.Status != StatusUnavailable || offline.Reason != "cpu_offline" {
+		t.Fatalf("offline CPU frequency status = %#v, found=%v", offline, ok)
+	}
+}
+
+func TestReadLinuxFrequencyReportsOnlineCPUWithoutPolicyAsUnsupported(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux cpufreq sysfs only")
+	}
+	root := t.TempDir()
+	writeSysfsTestFile(t, filepath.Join(root, "present"), "0-1")
+	writeSysfsTestFile(t, filepath.Join(root, "online"), "0")
+	items, err := readLinuxFrequency(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	online, ok := findMetric(items, MetricCoreFrequency, "cpu0")
+	if !ok || online.Status != StatusUnsupported || online.Reason != "unsupported_device" {
+		t.Fatalf("online CPU without cpufreq policy = %#v, found=%v", online, ok)
+	}
+	offline, ok := findMetric(items, MetricCoreFrequency, "cpu1")
+	if !ok || offline.Status != StatusUnavailable || offline.Reason != "cpu_offline" {
+		t.Fatalf("offline CPU without cpufreq policy = %#v, found=%v", offline, ok)
+	}
 }
