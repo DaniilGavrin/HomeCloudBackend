@@ -8,6 +8,25 @@ import (
 	"github.com/shirou/gopsutil/v4/cpu"
 )
 
+func TestSnapshotPreservesValidCoresWhenProviderReturnsPartialError(t *testing.T) {
+	now := time.Now().UTC()
+	aggregate := []cpu.TimesStat{{CPU: "cpu-total", User: 2, System: 1, Idle: 7}}
+	perCPU := []cpu.TimesStat{{CPU: "cpu0", User: 1, System: 1, Idle: 3}}
+	snapshot := snapshotFromStats(aggregate, nil, perCPU, errors.New("one logical CPU could not be read"), now)
+	if len(snapshot.Cores) != 1 || snapshot.Cores[0].ObjectID != "cpu0" {
+		t.Fatalf("valid logical CPU sample was discarded: %#v", snapshot)
+	}
+	foundPartial := false
+	for _, issue := range snapshot.Issues {
+		if issue.MetricID == MetricCoreUsage && issue.Status == StatusPartial && issue.ErrorCode == "PARTIAL_RESULT" {
+			foundPartial = true
+		}
+	}
+	if !foundPartial {
+		t.Fatalf("partial per-CPU provider error was not represented: %#v", snapshot.Issues)
+	}
+}
+
 func TestCalculateTotalUsage(t *testing.T) {
 	previous := Counters{TotalSeconds: 100, IdleSeconds: 60}
 	current := Counters{TotalSeconds: 110, IdleSeconds: 66}
