@@ -341,6 +341,9 @@ func waitWindow(ctx context.Context, window time.Duration) error {
 // CalculateTotalUsage excludes idle time. I/O wait is counted as non-idle.
 // Guest time is not added separately because Linux already includes it in user/nice.
 func CalculateTotalUsage(previous, current Counters) (float64, bool) {
+	if !countersNonDecreasing(previous, current) {
+		return 0, false
+	}
 	totalDelta := current.TotalSeconds - previous.TotalSeconds
 	// Linux I/O wait is preserved as its own counter but excluded from busy
 	// CPU time: the CPU is not executing work while waiting for I/O.
@@ -351,13 +354,24 @@ func CalculateTotalUsage(previous, current Counters) (float64, bool) {
 		return 0, false
 	}
 	value := (totalDelta - idleDelta) / totalDelta * 100
-	if math.IsNaN(value) || math.IsInf(value, 0) {
-		return 0, false
-	}
-	if value < 0 || value > 100 {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 100 {
 		return 0, false
 	}
 	return value, true
+}
+
+func countersNonDecreasing(previous, current Counters) bool {
+	return current.TotalSeconds >= previous.TotalSeconds &&
+		current.UserSeconds >= previous.UserSeconds &&
+		current.SystemSeconds >= previous.SystemSeconds &&
+		current.NiceSeconds >= previous.NiceSeconds &&
+		current.IdleSeconds >= previous.IdleSeconds &&
+		current.IOWaitSeconds >= previous.IOWaitSeconds &&
+		current.IRQSeconds >= previous.IRQSeconds &&
+		current.SoftIRQSeconds >= previous.SoftIRQSeconds &&
+		current.StealSeconds >= previous.StealSeconds &&
+		current.GuestSeconds >= previous.GuestSeconds &&
+		current.GuestNiceSeconds >= previous.GuestNiceSeconds
 }
 
 func counterNanoseconds(seconds float64) int64 {
