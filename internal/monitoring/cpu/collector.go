@@ -577,7 +577,7 @@ func filterFrequencyItems(ctx context.Context, items []MetricItem, params freque
 		if hasValidSource {
 			status, reason, code = StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE"
 		}
-		statusItems = append(statusItems, statusItem(metricID, requestedObject, status, reason, code, "linux.sysfs.cpufreq", now))
+		statusItems = append(statusItems, statusItem(metricID, requestedObject, status, reason, code, "linux.host.sysfs.cpufreq", now))
 	}
 	return statusItems, nil
 }
@@ -728,7 +728,7 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 				items[i].Status = StatusValid
 			}
 			if items[i].SourceID == "" {
-				items[i].SourceID = "linux.sysfs.cpufreq"
+				items[i].SourceID = "linux.host.sysfs.cpufreq"
 			}
 		}
 		return items, nil
