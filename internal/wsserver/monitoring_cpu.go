@@ -104,10 +104,14 @@ func (s *Server) handleMonitoringCommand(ctx context.Context, message Inbound, p
 	})
 	if result.Type != "result" {
 		code, category := result.ErrorCode, result.ErrorCategory
+		description := result.Error
 		if code == "" {
 			code, category = "PROVIDER_FAILURE", "execution"
 		}
-		return s.commandError(message.CorrelationID, payload.CommandID, code, category, result.Error, result.Retryable)
+		if code == "PROVIDER_FAILURE" {
+			description = "monitoring request failed"
+		}
+		return s.commandError(message.CorrelationID, payload.CommandID, code, category, description, result.Retryable)
 	}
 
 	encoded, err := json.Marshal(result.Data)
