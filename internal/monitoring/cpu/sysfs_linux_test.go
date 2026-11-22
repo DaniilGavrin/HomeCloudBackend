@@ -281,6 +281,9 @@ func TestReadLinuxCoreAvailabilityRejectsInconsistentOnlineSet(t *testing.T) {
 
 
 func TestReadLinuxFrequencyReportsOfflineCPUSeparatelyFromSharedPolicy(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux cpufreq sysfs only")
+	}
 	root := t.TempDir()
 	policy := filepath.Join(root, "cpufreq", "policy0")
 	writeSysfsTestFile(t, filepath.Join(root, "present"), "0-1")
@@ -303,6 +306,9 @@ func TestReadLinuxFrequencyReportsOfflineCPUSeparatelyFromSharedPolicy(t *testin
 }
 
 func TestReadLinuxFrequencyReportsOnlineCPUWithoutPolicyAsUnsupported(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux cpufreq sysfs only")
+	}
 	root := t.TempDir()
 	writeSysfsTestFile(t, filepath.Join(root, "present"), "0-1")
 	writeSysfsTestFile(t, filepath.Join(root, "online"), "0")
