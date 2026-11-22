@@ -226,6 +226,7 @@ func (m *Manager) Close() {
 	if m.closed {
 		m.mu.Unlock()
 		m.wg.Wait()
+		m.stopPerfReader()
 		return
 	}
 	m.closed = true
@@ -237,6 +238,7 @@ func (m *Manager) Close() {
 	clear(m.bySession)
 	m.mu.Unlock()
 	m.wg.Wait()
+	m.stopPerfReader()
 }
 
 func (m *Manager) hasSubscribers() bool {
