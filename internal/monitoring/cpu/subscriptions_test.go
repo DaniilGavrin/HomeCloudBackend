@@ -91,6 +91,7 @@ func TestNewCPUTargetsAreAccepted(t *testing.T) {
 		MetricInterrupts, MetricContextSwitches,
 		MetricForks, MetricProcessesRunning, MetricProcessesBlocked, MetricProcessesTarget,
 		MetricRunQueue, MetricPressureTarget, MetricPressureSome, MetricPressureFull,
+		MetricPressureSomeTotal, MetricPressureFullTotal,
 		MetricPerfTarget, MetricPerfCycles, MetricPerfInstructions, MetricPerfIPC,
 		MetricPerfBranchMissRate, MetricPerfCacheMissRate,
 	}
