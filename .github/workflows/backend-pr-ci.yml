@@ -39,7 +39,7 @@ jobs:
       - name: Static analysis
         run: go vet ./...
 
-      - name: Check race conditions in room state manager
+      - name: Check race conditions in state and monitoring managers
         env:
           CGO_ENABLED: "1"
-        run: go test -race -count=1 ./internal/mediarooms
+        run: go test -race -count=1 ./internal/mediarooms ./internal/monitoring/cpu
