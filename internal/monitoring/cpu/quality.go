@@ -142,7 +142,7 @@ func selectPerfEventIDs(targets []string) []string {
 	}
 	result := make([]string, 0, len(selected))
 	for _, metricID := range allPerfMetricIDs() {
-		if _, derived := isPerfDerivedMetric(metricID); !derived && selected[metricID] {
+		if numerator, denominator := isPerfDerivedMetric(metricID); numerator == "" && denominator == "" && selected[metricID] {
 			result = append(result, metricID)
 		}
 	}
