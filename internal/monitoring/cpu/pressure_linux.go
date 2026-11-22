@@ -32,15 +32,21 @@ func readLinuxCPUPressure(ctx context.Context, path string) ([]MetricItem, error
 		if errors.Is(err, os.ErrNotExist) {
 			status, reason, code = StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED"
 		}
-		return []MetricItem{
-			statusItem(MetricPressureSome, "", status, reason, code, "linux.proc.pressure.cpu", now),
-			statusItem(MetricPressureFull, "", status, reason, code, "linux.proc.pressure.cpu", now),
-		}, nil
+		return pressureStatusItems(status, reason, code, now), nil
 	}
 	defer data.Close()
 
-	values := make(map[string]float64, 2)
-	seen := make(map[string]bool, 2)
+	type pressureValues struct {
+		seen bool
+		values map[string]float64
+		total uint64
+		totalSeen bool
+		invalid map[string]bool
+	}
+	parsed := map[string]*pressureValues{
+		"some": {values: make(map[string]float64), invalid: make(map[string]bool)},
+		"full": {values: make(map[string]float64), invalid: make(map[string]bool)},
+	}
 	scanner := bufio.NewScanner(data)
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
@@ -50,33 +56,41 @@ func readLinuxCPUPressure(ctx context.Context, path string) ([]MetricItem, error
 		if len(fields) == 0 {
 			continue
 		}
-		name := fields[0]
-		if name != "some" && name != "full" {
+		values, ok := parsed[fields[0]]
+		if !ok {
 			continue
 		}
-		seen[name] = true
+		values.seen = true
 		for _, field := range fields[1:] {
 			key, raw, ok := strings.Cut(field, "=")
-			if !ok || key != "avg10" {
+			if !ok {
 				continue
 			}
-			value, parseErr := strconv.ParseFloat(raw, 64)
-			if parseErr != nil || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 100 {
-				continue
+			switch key {
+			case "avg10", "avg60", "avg300":
+				value, parseErr := strconv.ParseFloat(raw, 64)
+				if parseErr != nil || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 100 {
+					values.invalid[key] = true
+					continue
+				}
+				values.values[key] = value
+			case "total":
+				value, parseErr := strconv.ParseUint(raw, 10, 64)
+				if parseErr != nil || value > math.MaxInt64/1000 {
+					values.invalid[key] = true
+					continue
+				}
+				values.total = value
+				values.totalSeen = true
 			}
-			values[name] = value
-			break
 		}
 	}
 	if scanErr := scanner.Err(); scanErr != nil {
 		status, reason, code := classifySourceError(scanErr)
-		return []MetricItem{
-			statusItem(MetricPressureSome, "", status, reason, code, "linux.proc.pressure.cpu", now),
-			statusItem(MetricPressureFull, "", status, reason, code, "linux.proc.pressure.cpu", now),
-		}, nil
+		return pressureStatusItems(status, reason, code, now), nil
 	}
 
-	items := make([]MetricItem, 0, 2)
+	items := make([]MetricItem, 0, 8)
 	for _, metric := range []struct {
 		name string
 		id string
@@ -84,23 +98,66 @@ func readLinuxCPUPressure(ctx context.Context, path string) ([]MetricItem, error
 		{name: "some", id: MetricPressureSome},
 		{name: "full", id: MetricPressureFull},
 	} {
-		value, ok := values[metric.name]
-		if !seen[metric.name] {
+		values := parsed[metric.name]
+		if !values.seen {
+			for _, window := range []int64{10_000, 60_000, 300_000} {
+				items = append(items, statusItem(metric.id, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "linux.proc.pressure.cpu", now))
+				items[len(items)-1].WindowMS = window
+			}
 			items = append(items, statusItem(metric.id, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "linux.proc.pressure.cpu", now))
 			continue
 		}
-		if !ok {
-			items = append(items, statusItem(metric.id, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.proc.pressure.cpu", now))
+		for _, window := range []struct {
+			key string
+			ms int64
+		}{
+			{key: "avg10", ms: 10_000},
+			{key: "avg60", ms: 60_000},
+			{key: "avg300", ms: 300_000},
+		} {
+			value, ok := values.values[window.key]
+			if !ok {
+				status, reason, code := StatusUnsupported, "field_not_provided", "METRIC_UNSUPPORTED"
+				if values.invalid[window.key] {
+					status, reason, code = StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA"
+				}
+				item := statusItem(metric.id, "", status, reason, code, "linux.proc.pressure.cpu", now)
+				item.WindowMS = window.ms
+				items = append(items, item)
+				continue
+			}
+			items = append(items, MetricItem{
+				MetricID: metric.id, Value: value, Unit: "percent",
+				ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid,
+				SourceID: "linux.proc.pressure.cpu", WindowMS: window.ms,
+			})
+		}
+		if !values.totalSeen {
+			status, reason, code := StatusUnsupported, "field_not_provided", "METRIC_UNSUPPORTED"
+			if values.invalid["total"] {
+				status, reason, code = StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA"
+			}
+			items = append(items, statusItem(metric.id, "", status, reason, code, "linux.proc.pressure.cpu", now))
 			continue
 		}
 		items = append(items, MetricItem{
-			MetricID: metric.id, Value: value, Unit: "percent",
+			MetricID: metric.id, Value: int64(values.total * 1000), Unit: "ns",
 			ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid,
-			SourceID: "linux.proc.pressure.cpu", WindowMS: 10_000,
+			SourceID: "linux.proc.pressure.cpu",
 		})
 	}
-	if len(items) == 0 {
-		return nil, fmt.Errorf("CPU pressure source returned no metrics")
-	}
 	return items, nil
+}
+
+func pressureStatusItems(status, reason, code string, observedAt time.Time) []MetricItem {
+	items := make([]MetricItem, 0, 8)
+	for _, metricID := range []string{MetricPressureSome, MetricPressureFull} {
+		for _, window := range []int64{10_000, 60_000, 300_000} {
+			item := statusItem(metricID, "", status, reason, code, "linux.proc.pressure.cpu", observedAt)
+			item.WindowMS = window
+			items = append(items, item)
+		}
+		items = append(items, statusItem(metricID, "", status, reason, code, "linux.proc.pressure.cpu", observedAt))
+	}
+	return items
 }
