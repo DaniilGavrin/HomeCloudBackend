@@ -138,6 +138,42 @@ func TestBaseCPUSubscriptionDoesNotReceiveOptInPMUMetrics(t *testing.T) {
 	}
 }
 
+func TestIndividualCPUChildSubscriptionsReceiveGroupSourceStatus(t *testing.T) {
+	tests := []struct {
+		name string
+		target string
+		group string
+	}{
+		{name: "C-state", target: "system.cpu.idle.cstate.c1", group: MetricCStateTarget},
+		{name: "throttling", target: MetricThrottleThermalCoreEvents, group: MetricThrottlingTarget},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manager := NewManager(testCollector{}, nil)
+			defer manager.Close()
+			var delivered commands.Outbound
+			deliver := func(_ context.Context, message commands.Outbound) error {
+				delivered = message
+				return nil
+			}
+			if _, err := manager.Subscribe(1, test.target, EffectiveInterval, deliver); err != nil {
+				t.Fatal(err)
+			}
+			manager.publish(context.Background(), []MetricItem{
+				statusItem(test.group, "", StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "test.source", time.Now().UTC()),
+			})
+			payload, ok := delivered.Payload.(map[string]any)
+			if !ok {
+				t.Fatalf("payload = %#v, want subscription.update", delivered.Payload)
+			}
+			items, ok := payload["items"].([]MetricItem)
+			if !ok || len(items) != 1 || items[0].MetricID != test.target || items[0].Status != StatusUnsupported {
+				t.Fatalf("child subscription did not receive explicit source status: %#v", payload["items"])
+			}
+		})
+	}
+}
+
 func TestPerCoreSubscriptionDeliversAllMatchingObjects(t *testing.T) {
 	manager := NewManager(testCollector{}, func() string { return "node-test" })
 	defer manager.Close()
