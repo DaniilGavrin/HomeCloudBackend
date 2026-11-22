@@ -34,7 +34,7 @@ func TestReadLinuxCPUPressurePreservesAllSomeWindowsAndUnsupportedFull(t *testin
 			t.Fatalf("unexpected some PSI window %d: %#v (found=%v)", test.window, item, ok)
 		}
 	}
-	total, ok := findPressureItem(items, MetricPressureSome, 0)
+	total, ok := findPressureItem(items, MetricPressureSomeTotal, 0)
 	if !ok || total.Status != StatusValid || total.Unit != "ns" || total.Value != int64(12_345_000) {
 		t.Fatalf("unexpected some PSI total: %#v (found=%v)", total, ok)
 	}
@@ -62,7 +62,7 @@ func TestReadLinuxCPUPressureReadsFullWhenProvided(t *testing.T) {
 	if !ok || item.Value != 0.5 || item.Status != StatusValid {
 		t.Fatalf("unexpected full pressure avg10 result: %#v", item)
 	}
-	total, ok := findPressureItem(items, MetricPressureFull, 0)
+	total, ok := findPressureItem(items, MetricPressureFullTotal, 0)
 	if !ok || total.Value != int64(123_000) || total.Unit != "ns" {
 		t.Fatalf("unexpected full pressure total: %#v", total)
 	}
