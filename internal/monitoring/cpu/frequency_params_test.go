@@ -15,7 +15,7 @@ func TestParseFrequencyCommandParams(t *testing.T) {
 		want frequencyCommandParams
 		wantCode string
 	}{
-		{name: "CPU filter", raw: json.RawMessage(`{"cpu_id":2}`), want: frequencyCommandParams{CPUId: int64PtrForFrequencyTest(2)}},
+		{name: "CPU filter", raw: json.RawMessage(`{"cpu_id":2}`), want: frequencyCommandParams{CPUId: int64Pointer(2)}},
 		{name: "core filter", raw: json.RawMessage(`{"core_id":1}`), want: frequencyCommandParams{CoreID: int64Pointer(1)}},
 		{name: "frequency domain", raw: json.RawMessage(`{"frequency_domain":"policy0"}`), want: frequencyCommandParams{FrequencyDomain:"policy0"}},
 		{name: "invalid domain", raw: json.RawMessage(`{"frequency_domain":"cpu0"}`), wantCode:"VALIDATION_INVALID_FIELD"},
