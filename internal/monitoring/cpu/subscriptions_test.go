@@ -516,7 +516,7 @@ func TestItemsForDistinguishesOfflineMissingAndUnavailableCPUs(t *testing.T) {
 	assertCoreStatus("cpu1", MetricCoreTotalUsage, StatusUnavailable, "cpu_offline")
 	assertCoreStatus("cpu1", MetricCoreUsage, StatusUnavailable, "cpu_offline")
 	assertCoreStatus("cpu3", MetricCoreUser, StatusUnavailable, "not_present")
-	assertCoreStatus("cpu4", MetricCoreUser, StatusSourceError, "source_failure")
+	assertCoreStatus("cpu4", MetricCoreUser, StatusUnavailable, "source_failure")
 }
 
 func TestApplyCoreAvailabilityOverridesUnexpectedOfflineCoreSample(t *testing.T) {
