@@ -93,17 +93,19 @@ func readLinuxCPUPressure(ctx context.Context, path string) ([]MetricItem, error
 	for _, metric := range []struct {
 		name string
 		id string
+		totalID string
 	}{
-		{name: "some", id: MetricPressureSome},
-		{name: "full", id: MetricPressureFull},
+		{name: "some", id: MetricPressureSome, totalID: MetricPressureSomeTotal},
+		{name: "full", id: MetricPressureFull, totalID: MetricPressureFullTotal},
 	} {
 		values := parsed[metric.name]
 		if !values.seen {
 			for _, window := range []int64{10_000, 60_000, 300_000} {
-				items = append(items, statusItem(metric.id, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "linux.host.proc.pressure.cpu", now))
-				items[len(items)-1].WindowMS = window
+				item := statusItem(metric.id, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "linux.host.proc.pressure.cpu", now)
+				item.WindowMS = window
+				items = append(items, item)
 			}
-			items = append(items, statusItem(metric.id, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "linux.host.proc.pressure.cpu", now))
+			items = append(items, statusItem(metric.totalID, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "linux.host.proc.pressure.cpu", now))
 			continue
 		}
 		for _, window := range []struct {
@@ -136,11 +138,11 @@ func readLinuxCPUPressure(ctx context.Context, path string) ([]MetricItem, error
 			if values.invalid["total"] {
 				status, reason, code = StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA"
 			}
-			items = append(items, statusItem(metric.id, "", status, reason, code, "linux.host.proc.pressure.cpu", now))
+			items = append(items, statusItem(metric.totalID, "", status, reason, code, "linux.host.proc.pressure.cpu", now))
 			continue
 		}
 		items = append(items, MetricItem{
-			MetricID: metric.id, Value: int64(values.total * 1000), Unit: "ns",
+			MetricID: metric.totalID, Value: int64(values.total * 1000), Unit: "ns",
 			ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid,
 			SourceID: "linux.host.proc.pressure.cpu",
 		})
