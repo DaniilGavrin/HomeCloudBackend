@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 func TestReadLinuxCStates(t *testing.T) {
@@ -134,6 +135,9 @@ func writeFileForTest(path, value string) error {
 
 
 func TestReadLinuxCStatesMarksOfflineCPUUnavailable(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux cpuidle sysfs only")
+	}
 	root := t.TempDir()
 	writeSysfsTestFile(t, filepath.Join(root, "present"), "0-1")
 	writeSysfsTestFile(t, filepath.Join(root, "online"), "1")
@@ -157,6 +161,9 @@ func TestReadLinuxCStatesMarksOfflineCPUUnavailable(t *testing.T) {
 }
 
 func TestReadLinuxThrottlingMarksOfflineCoreUnavailable(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux thermal_throttle sysfs only")
+	}
 	root := t.TempDir()
 	writeSysfsTestFile(t, filepath.Join(root, "present"), "0-1")
 	writeSysfsTestFile(t, filepath.Join(root, "online"), "1")
