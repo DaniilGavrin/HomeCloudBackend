@@ -678,12 +678,19 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 			if !aggregateAvailable(snapshot) {
 				return nil, commands.NewClassifiedError("SOURCE_UNAVAILABLE", "source", "aggregate CPU metric is unavailable", true, nil)
 			}
+			status := snapshot.AggregateStatus
+			if status == "" {
+				status = StatusValid
+			}
+			reason, errorCode := "", ""
+			if status == StatusPartial {
+				reason, errorCode = "partial_source", "PARTIAL_RESULT"
+			}
 			return metricResult{
 				Value: counterNanoseconds(read(snapshot.Counters)), Unit: "ns",
 				ObservedAt: time.Now().UTC().Format(time.RFC3339Nano),
-				Status: snapshot.AggregateStatus, SourceID: "gopsutil.cpu.times",
-				Reason: func() string { if snapshot.AggregateStatus == StatusPartial { return "partial_source" }; return "" }(),
-				ErrorCode: func() string { if snapshot.AggregateStatus == StatusPartial { return "PARTIAL_RESULT" }; return "" }(),
+				Status: status, SourceID: "gopsutil.cpu.times",
+				Reason: reason, ErrorCode: errorCode,
 			}, nil
 		})
 	}
