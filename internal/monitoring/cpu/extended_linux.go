@@ -150,7 +150,7 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 
 	packagePaths := make(map[string]string)
 	packageIDs := make(map[string]bool)
-	items := make([]MetricItem, 0, len(cpuIDs)*3+6)
+	items := make([]MetricItem, 0, len(cpuIDs)*5+len(cpuIDs)*2+8)
 	for _, id := range cpuIDs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -176,6 +176,8 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 				statusItem(MetricThrottleThermalCoreEvents, cpuName, status, reason, code, "linux.sysfs.thermal_throttle", now),
 				statusItem(MetricThrottleThermalCoreDuration, cpuName, status, reason, code, "linux.sysfs.thermal_throttle", now),
 				statusItem(MetricThrottlePowerCoreEvents, cpuName, status, reason, code, "linux.sysfs.thermal_throttle", now),
+				statusItem(MetricThrottlePowerCoreDuration, cpuName, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.sysfs.thermal_throttle", now),
+				statusItem(MetricThrottleActive, cpuName, StatusUnsupported, "active_state_not_exposed", "METRIC_UNSUPPORTED", "linux.sysfs.thermal_throttle", now),
 			)
 			continue
 		}
@@ -183,6 +185,8 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 			appendThrottleCounter(throttlePath, "core_throttle_count", MetricThrottleThermalCoreEvents, cpuName, "count", 1, now),
 			appendThrottleCounter(throttlePath, "core_throttle_total_time_ms", MetricThrottleThermalCoreDuration, cpuName, "ns", uint64(time.Millisecond), now),
 			appendThrottleCounter(throttlePath, "core_power_limit_count", MetricThrottlePowerCoreEvents, cpuName, "count", 1, now),
+			statusItem(MetricThrottlePowerCoreDuration, cpuName, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.sysfs.thermal_throttle", now),
+			statusItem(MetricThrottleActive, cpuName, StatusUnsupported, "active_state_not_exposed", "METRIC_UNSUPPORTED", "linux.sysfs.thermal_throttle", now),
 		)
 		if packageKnown {
 			if _, exists := packagePaths[packageID]; !exists {
@@ -204,6 +208,7 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 				statusItem(MetricThrottleThermalPackageEvents, objectID, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.sysfs.thermal_throttle", now),
 				statusItem(MetricThrottleThermalPackageDuration, objectID, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.sysfs.thermal_throttle", now),
 				statusItem(MetricThrottlePowerPackageEvents, objectID, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.sysfs.thermal_throttle", now),
+				statusItem(MetricThrottlePowerPackageDuration, objectID, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.sysfs.thermal_throttle", now),
 			)
 			continue
 		}
@@ -211,10 +216,11 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 			appendThrottleCounter(throttlePath, "package_throttle_count", MetricThrottleThermalPackageEvents, objectID, "count", 1, now),
 			appendThrottleCounter(throttlePath, "package_throttle_total_time_ms", MetricThrottleThermalPackageDuration, objectID, "ns", uint64(time.Millisecond), now),
 			appendThrottleCounter(throttlePath, "package_power_limit_count", MetricThrottlePowerPackageEvents, objectID, "count", 1, now),
+			statusItem(MetricThrottlePowerPackageDuration, objectID, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.sysfs.thermal_throttle", now),
 		)
 	}
 	if len(packageKeys) == 0 {
-		for _, metricID := range []string{MetricThrottleThermalPackageEvents, MetricThrottleThermalPackageDuration, MetricThrottlePowerPackageEvents} {
+		for _, metricID := range []string{MetricThrottleThermalPackageEvents, MetricThrottleThermalPackageDuration, MetricThrottlePowerPackageEvents, MetricThrottlePowerPackageDuration} {
 			items = append(items, statusItem(metricID, "", StatusUnsupported, "package_topology_unavailable", "METRIC_UNSUPPORTED", "linux.sysfs.thermal_throttle", now))
 		}
 	}
