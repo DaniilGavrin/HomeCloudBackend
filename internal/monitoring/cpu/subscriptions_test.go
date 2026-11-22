@@ -94,10 +94,14 @@ func TestNewCPUTargetsAreAccepted(t *testing.T) {
 		MetricPerfTarget, MetricPerfCycles, MetricPerfInstructions, MetricPerfIPC,
 		MetricPerfBranchMissRate, MetricPerfCacheMissRate,
 	}
-	for _, target := range targets {
-		if _, err := manager.Subscribe(1, target, EffectiveInterval, deliver); err != nil {
+	for index, target := range targets {
+		sessionID := int64(index + 1)
+		id, err := manager.Subscribe(sessionID, target, EffectiveInterval, deliver)
+		if err != nil {
 			t.Errorf("Subscribe(%q): %v", target, err)
+			continue
 		}
+		manager.Cancel(sessionID, id)
 	}
 }
 
