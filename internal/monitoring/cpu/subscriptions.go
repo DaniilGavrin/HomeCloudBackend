@@ -555,8 +555,59 @@ func itemsFor(current Snapshot, previous *Snapshot, observedAt time.Time) []Metr
 		}
 	}
 	items = append(items, current.Issues...)
+	return applyCoreAvailability(items, current, previous)
+}
+
+func applyCoreAvailability(items []MetricItem, current Snapshot, previous *Snapshot) []MetricItem {
+	if !current.CoreAvailabilityKnown {
+		return items
+	}
+	currentCores := make(map[string]bool, len(current.Cores))
+	for _, core := range current.Cores {
+		currentCores[core.ObjectID] = true
+		state, exists := current.CoreAvailability[core.ObjectID]
+		if !exists || !state.Present || !state.Online {
+			status, reason, code := coreUnavailableStatus(state, exists)
+			for i := range items {
+				if isPerCoreCPUMetric(items[i].MetricID) && items[i].ObjectID == core.ObjectID {
+					items[i] = statusItem(items[i].MetricID, core.ObjectID, status, reason, code, "linux.host.sysfs.cpu", current.CollectedAt)
+				}
+			}
+		}
+	}
+	if previous == nil {
+		return items
+	}
+	for _, core := range previous.Cores {
+		if currentCores[core.ObjectID] {
+			continue
+		}
+		state, exists := current.CoreAvailability[core.ObjectID]
+		status, reason, code := coreUnavailableStatus(state, exists)
+		for _, metricID := range []string{MetricCoreUser, MetricCoreTotalUsage, MetricCoreUsage} {
+			if !hasMetricStatus(items, metricID, core.ObjectID) {
+				items = append(items, statusItem(metricID, core.ObjectID, status, reason, code, "linux.host.sysfs.cpu", current.CollectedAt))
+			}
+		}
+	}
 	return items
 }
+
+func isPerCoreCPUMetric(metricID string) bool {
+	return metricID == MetricCoreUser || metricID == MetricCoreTotalUsage || metricID == MetricCoreUsage
+}
+
+func coreUnavailableStatus(state CoreAvailability, exists bool) (status, reason, code string) {
+	switch {
+	case !exists || !state.Present:
+		return StatusUnavailable, "not_present", "SOURCE_UNAVAILABLE"
+	case !state.Online:
+		return StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE"
+	default:
+		return StatusSourceError, "source_failure", "SOURCE_UNAVAILABLE"
+	}
+}
+
 func sampleWindowMilliseconds(previous, current Snapshot) int64 {
 	if previous.CollectedAt.IsZero() || current.CollectedAt.IsZero() {
 		return EffectiveInterval.Milliseconds()
