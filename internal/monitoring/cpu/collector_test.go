@@ -270,3 +270,41 @@ func TestCountersFromTimesDoesNotDoubleCountGuest(t *testing.T) {
 		t.Fatalf("guest counters = (%v, %v), want (4, 2)", got.GuestSeconds, got.GuestNiceSeconds)
 	}
 }
+
+
+func TestUsageSampleFromSnapshotsUsesObservedWindow(t *testing.T) {
+	start := time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)
+	before := Snapshot{
+		CollectedAt: start,
+		AggregateStatus: StatusValid,
+		Counters: Counters{TotalSeconds: 100, IdleSeconds: 60},
+	}
+	after := Snapshot{
+		CollectedAt: start.Add(1250 * time.Millisecond),
+		AggregateStatus: StatusValid,
+		Counters: Counters{TotalSeconds: 110, IdleSeconds: 66},
+	}
+
+	sample, err := usageSampleFromSnapshots(before, after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sample.Value != 40 {
+		t.Fatalf("usage = %v, want 40", sample.Value)
+	}
+	if !sample.WindowStart.Equal(before.CollectedAt) || !sample.WindowEnd.Equal(after.CollectedAt) {
+		t.Fatalf("sample timestamps = %v..%v, want %v..%v", sample.WindowStart, sample.WindowEnd, before.CollectedAt, after.CollectedAt)
+	}
+	if sample.WindowMS != 1250 {
+		t.Fatalf("window_ms = %d, want actual observed 1250ms", sample.WindowMS)
+	}
+}
+
+func TestUsageSampleFromSnapshotsRejectsNonPositiveWindow(t *testing.T) {
+	now := time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)
+	before := Snapshot{CollectedAt: now, AggregateStatus: StatusValid, Counters: Counters{TotalSeconds: 10, IdleSeconds: 5}}
+	after := Snapshot{CollectedAt: now, AggregateStatus: StatusValid, Counters: Counters{TotalSeconds: 11, IdleSeconds: 5}}
+	if _, err := usageSampleFromSnapshots(before, after); err == nil {
+		t.Fatal("expected non-positive observed window to be rejected")
+	}
+}
