@@ -469,3 +469,68 @@ func TestIndividualFrequencySubscriptionFiltersMetrics(t *testing.T) {
 		t.Fatalf("individual frequency items = %#v, want governor only", items)
 	}
 }
+
+
+func TestItemsForDistinguishesOfflineMissingAndUnavailableCPUs(t *testing.T) {
+	now := time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)
+	previous := Snapshot{
+		CollectedAt: now.Add(-time.Second),
+		AggregateStatus: StatusValid,
+		Cores: []CoreCounters{
+			{ObjectID: "cpu0", Counters: Counters{TotalSeconds: 10, UserSeconds: 5, IdleSeconds: 5}},
+			{ObjectID: "cpu1", Counters: Counters{TotalSeconds: 10, UserSeconds: 5, IdleSeconds: 5}},
+			{ObjectID: "cpu3", Counters: Counters{TotalSeconds: 10, UserSeconds: 5, IdleSeconds: 5}},
+			{ObjectID: "cpu4", Counters: Counters{TotalSeconds: 10, UserSeconds: 5, IdleSeconds: 5}},
+		},
+	}
+	current := Snapshot{
+		CollectedAt: now,
+		AggregateStatus: StatusValid,
+		Cores: []CoreCounters{
+			{ObjectID: "cpu0", Counters: Counters{TotalSeconds: 20, UserSeconds: 10, IdleSeconds: 10}},
+		},
+		CoreAvailabilityKnown: true,
+		CoreAvailability: map[string]CoreAvailability{
+			"cpu0": {Present: true, Online: true},
+			"cpu1": {Present: true, Online: false},
+			"cpu2": {Present: true, Online: true},
+			"cpu4": {Present: true, Online: true},
+		},
+	}
+
+	items := itemsFor(current, &previous, now)
+	assertCoreStatus := func(cpuID, metricID, status, reason string) {
+		t.Helper()
+		for _, item := range items {
+			if item.MetricID == metricID && item.ObjectID == cpuID {
+				if item.Status != status || item.Reason != reason || item.Value != nil {
+					t.Fatalf("%s/%s = %#v, want status=%s reason=%s without value", cpuID, metricID, item, status, reason)
+				}
+				return
+			}
+		}
+		t.Fatalf("missing %s/%s status item in %#v", cpuID, metricID, items)
+	}
+
+	assertCoreStatus("cpu1", MetricCoreUser, StatusUnavailable, "cpu_offline")
+	assertCoreStatus("cpu1", MetricCoreTotalUsage, StatusUnavailable, "cpu_offline")
+	assertCoreStatus("cpu1", MetricCoreUsage, StatusUnavailable, "cpu_offline")
+	assertCoreStatus("cpu3", MetricCoreUser, StatusUnavailable, "not_present")
+	assertCoreStatus("cpu4", MetricCoreUser, StatusSourceError, "source_failure")
+}
+
+func TestApplyCoreAvailabilityOverridesUnexpectedOfflineCoreSample(t *testing.T) {
+	now := time.Now().UTC()
+	current := Snapshot{
+		CollectedAt: now,
+		Cores: []CoreCounters{{ObjectID: "cpu2", Counters: Counters{UserSeconds: 1}}},
+		CoreAvailabilityKnown: true,
+		CoreAvailability: map[string]CoreAvailability{
+			"cpu2": {Present: true, Online: false},
+		},
+	}
+	items := applyCoreAvailability(coreUserItems(current.Cores, now), current, nil)
+	if len(items) != 1 || items[0].Status != StatusUnavailable || items[0].Reason != "cpu_offline" || items[0].Value != nil {
+		t.Fatalf("offline CPU must not be emitted as a valid counter: %#v", items)
+	}
+}
