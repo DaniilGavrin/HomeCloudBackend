@@ -866,7 +866,7 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 
 	readCoreUsage := func(ctx context.Context, msg commands.Inbound) ([]MetricItem, error) {
 		var params coreUsageCommandParams
-		if err := decodeStrictParams(msg.Data, &params, "sample_interval", "window_ms", "cpu_id", "core_id"); err != nil {
+		if err := decodeStrictParams(msg.Data, &params, "sample_interval", "sample_interval_ms", "window_ms", "cpu_id", "core_id"); err != nil {
 			return nil, err
 		}
 		if params.CPUId != nil && *params.CPUId < 0 || params.CoreID != nil && *params.CoreID < 0 {
@@ -875,7 +875,7 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 		if params.CPUId != nil && params.CoreID != nil {
 			return nil, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "cpu_id and core_id cannot be used together", false, nil)
 		}
-		window, err := parseIntervalFields(params.SampleInterval, params.WindowMS)
+		window, err := parseIntervalFields(params.SampleInterval, params.SampleIntervalMS, params.WindowMS)
 		if err != nil {
 			return nil, err
 		}
