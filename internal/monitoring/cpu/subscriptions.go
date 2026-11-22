@@ -84,6 +84,7 @@ type Manager struct {
 	cancel context.CancelFunc
 	wg sync.WaitGroup
 	closed bool
+	frequencyFailed bool
 }
 
 func NewManager(collector Collector, nodeID func() string) *Manager {
@@ -326,53 +327,27 @@ func (m *Manager) hasPerfSubscribers() bool {
 
 func (m *Manager) publishFrequency(ctx context.Context) {
 	if !m.hasFrequencySubscribers() {
+		m.frequencyFailed = false
 		return
 	}
 	reader, ok := m.collector.(interface {
 		ReadFrequency(context.Context) ([]MetricItem, error)
 	})
 	if !ok {
-		m.publishFrequencyError(ctx, ErrMetricUnsupported)
+		m.publishExtendedError(ctx, MetricFrequencyTarget, ErrMetricUnsupported, &m.frequencyFailed)
 		return
 	}
 	items, err := reader.ReadFrequency(ctx)
 	if err != nil {
-		m.publishFrequencyError(ctx, err)
+		m.publishExtendedError(ctx, MetricFrequencyTarget, err, &m.frequencyFailed)
 		return
 	}
+	m.frequencyFailed = false
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	for i := range items {
 		items[i].ObservedAt = now
 	}
 	m.publish(ctx, items)
-}
-
-func (m *Manager) publishFrequencyError(ctx context.Context, cause error) {
-	code, category, retryable := "SOURCE_UNAVAILABLE", "source", true
-	if errors.Is(cause, ErrMetricUnsupported) {
-		code, retryable = "METRIC_UNSUPPORTED", false
-	}
-	for _, sub := range m.snapshot() {
-		if sub.target != Target && !isFrequencyTarget(sub.target) {
-			continue
-		}
-		nodeID := ""
-		if m.nodeID != nil {
-			nodeID = m.nodeID()
-		}
-		deliveryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		_ = sub.deliver(deliveryCtx, commands.Outbound{
-			V: 1, Type: "subscription.error", NodeID: nodeID,
-			Payload: map[string]any{
-				"subscription_id": sub.id, "target": sub.target,
-				"error": map[string]any{
-					"code": code, "category": category, "retryable": retryable,
-					"message": "CPU frequency source is unavailable",
-				},
-			},
-		})
-		cancel()
-	}
 }
 
 func (m *Manager) snapshot() []subscription {
@@ -405,6 +380,7 @@ func (m *Manager) run(ctx context.Context) {
 		case <-m.wake:
 			// A newly created subscription must receive its own capability error,
 			// even when another subscriber already encountered the same failure.
+			m.frequencyFailed = false
 			lastCStateFailed = false
 			lastThrottlingFailed = false
 			lastSystemCountersFailed = false
@@ -414,6 +390,7 @@ func (m *Manager) run(ctx context.Context) {
 			if !m.hasSubscribers() {
 				previous = nil
 				lastCollectionFailed = false
+				m.frequencyFailed = false
 				lastCStateFailed = false
 				lastThrottlingFailed = false
 				lastSystemCountersFailed = false
@@ -448,6 +425,7 @@ func (m *Manager) run(ctx context.Context) {
 			if !m.hasSubscribers() {
 				previous = nil
 				lastCollectionFailed = false
+				m.frequencyFailed = false
 				lastCStateFailed = false
 				lastThrottlingFailed = false
 				lastSystemCountersFailed = false
@@ -725,7 +703,7 @@ func (m *Manager) publishExtendedError(ctx context.Context, target string, cause
 	for _, sub := range m.snapshot() {
 		matches := false
 		switch target {
-		case MetricCStateTarget, MetricThrottlingTarget, MetricPressureTarget, MetricTemperature:
+		case MetricFrequencyTarget, MetricCStateTarget, MetricThrottlingTarget, MetricPressureTarget, MetricTemperature:
 			matches = sub.target == Target || sub.target == target || strings.HasPrefix(sub.target, target+".")
 		case MetricPerfTarget:
 			matches = sub.target == target || strings.HasPrefix(sub.target, target+".")
