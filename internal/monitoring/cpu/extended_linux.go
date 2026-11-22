@@ -284,7 +284,7 @@ func readLinuxSystemCounters(ctx context.Context, procStatPath string) ([]Metric
 		status, reason, code := classifySourceError(err)
 		items := make([]MetricItem, 0, 6)
 		for _, metricID := range []string{MetricInterrupts, MetricContextSwitches, MetricForks, MetricProcessesRunning, MetricProcessesBlocked, MetricRunQueue} {
-			items = append(items, statusItem(metricID, "", status, reason, code, "linux.proc.stat", now))
+			items = append(items, statusItem(metricID, "", status, reason, code, "linux.host.proc.stat", now))
 		}
 		return items, nil
 	}
@@ -331,7 +331,7 @@ func readLinuxSystemCounters(ctx context.Context, procStatPath string) ([]Metric
 		status, reason, code := classifySourceError(scanErr)
 		items := make([]MetricItem, 0, len(specs))
 		for _, spec := range specs {
-			items = append(items, statusItem(spec.metricID, "", status, reason, code, "linux.proc.stat", now))
+			items = append(items, statusItem(spec.metricID, "", status, reason, code, "linux.host.proc.stat", now))
 		}
 		return items, nil
 	}
@@ -339,18 +339,18 @@ func readLinuxSystemCounters(ctx context.Context, procStatPath string) ([]Metric
 	items := make([]MetricItem, 0, len(specs))
 	for _, spec := range specs {
 		if invalid[spec.key] {
-			items = append(items, statusItem(spec.metricID, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.proc.stat", now))
+			items = append(items, statusItem(spec.metricID, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.host.proc.stat", now))
 			continue
 		}
 		value, ok := values[spec.key]
 		if !ok {
-			items = append(items, statusItem(spec.metricID, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "linux.proc.stat", now))
+			items = append(items, statusItem(spec.metricID, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "linux.host.proc.stat", now))
 			continue
 		}
 		items = append(items, MetricItem{
 			MetricID: spec.metricID, Value: value, Unit: "count",
 			ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid,
-			SourceID: "linux.proc.stat",
+			SourceID: "linux.host.proc.stat",
 		})
 	}
 	return items, nil
