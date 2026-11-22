@@ -367,13 +367,8 @@ func (r *perfReader) read(ctx context.Context) ([]MetricItem, error) {
 			items = append(items, statusItem(metricID, "", StatusUnavailable, "zero_denominator", "SOURCE_INVALID_DATA", "linux.perf_event_open", now))
 			continue
 		}
-		value := float64(numerator) / float64(denominator)
-		unit := "ratio"
-		if metricID != MetricPerfIPC {
-			value *= 100
-			unit = "percent"
-		}
-		if math.IsNaN(value) || math.IsInf(value, 0) {
+		value, unit, valid := derivedPerfValue(metricID, numerator, denominator)
+		if !valid || math.IsNaN(value) || math.IsInf(value, 0) {
 			items = append(items, statusItem(metricID, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.perf_event_open", now))
 			continue
 		}
@@ -388,6 +383,18 @@ func (r *perfReader) read(ctx context.Context) ([]MetricItem, error) {
 		})
 	}
 	return items, nil
+}
+
+func derivedPerfValue(metricID string, numerator, denominator uint64) (float64, string, bool) {
+	if denominator == 0 {
+		return 0, "", false
+	}
+	value := float64(numerator) / float64(denominator)
+	if metricID == MetricPerfIPC {
+		return value, "ratio", !math.IsNaN(value) && !math.IsInf(value, 0)
+	}
+	value *= 100
+	return value, "percent", !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0 && value <= 100
 }
 
 func readPerfEvent(fd int) (uint64, error) {
