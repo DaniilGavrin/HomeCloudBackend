@@ -187,6 +187,7 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 		return []MetricItem{statusItem(MetricThrottlingTarget, "", StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "linux.host.sysfs.thermal_throttle", now)}, nil
 	}
 	sort.Ints(cpuIDs)
+	availability, availabilityKnown := readLinuxCoreAvailability(cpuSysfsPath)
 
 	packagePaths := make(map[string]string)
 	packageIDs := make(map[string]bool)
@@ -207,6 +208,34 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 		}
 
 		throttlePath := filepath.Join(cpuPath, "thermal_throttle")
+		if availabilityKnown {
+			state, exists := availability[cpuName]
+			if !exists || !state.Present {
+				for _, metricID := range []string{
+					MetricThrottleThermalCoreEvents, MetricThrottleThermalCoreDuration,
+					MetricThrottlePowerCoreEvents, MetricThrottlePowerCoreDuration, MetricThrottleActive,
+				} {
+					items = append(items, statusItem(metricID, cpuName, StatusUnavailable, "not_present", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu", now))
+				}
+				continue
+			}
+			if !state.Online {
+				for _, metricID := range []string{
+					MetricThrottleThermalCoreEvents, MetricThrottleThermalCoreDuration,
+					MetricThrottlePowerCoreEvents, MetricThrottlePowerCoreDuration, MetricThrottleActive,
+				} {
+					items = append(items, statusItem(metricID, cpuName, StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu", now))
+				}
+				if packageKnown {
+					if _, statErr := os.Stat(throttlePath); statErr == nil {
+						if _, exists := packagePaths[packageID]; !exists {
+							packagePaths[packageID] = throttlePath
+						}
+					}
+				}
+				continue
+			}
+		}
 		if _, statErr := os.Stat(throttlePath); statErr != nil {
 			status, reason, code := classifySourceError(statErr)
 			if errors.Is(statErr, os.ErrNotExist) {
