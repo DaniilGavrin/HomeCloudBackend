@@ -64,12 +64,27 @@ func TestFilterFrequencyItemsPreservesRequestedMetricStatus(t *testing.T) {
 	}
 	foundCurrent := false
 	for _, item := range filtered {
-		if item.MetricID == MetricFrequencyCurrent && item.ObjectID == "policy999999" && item.Status == StatusUnavailable {
+		if item.MetricID == MetricFrequencyCurrent && item.ObjectID == "policy999999" && item.Status == StatusUnsupported {
 			foundCurrent = true
 		}
 	}
 	if !foundCurrent {
-		t.Fatalf("filtered response lost requested frequency metric status: %#v", filtered)
+		t.Fatalf("filtered response lost unsupported frequency status: %#v", filtered)
+	}
+
+	validInput := []MetricItem{{MetricID: MetricFrequencyCurrent, ObjectID: "policy0", Value: uint64(2_000_000), Unit: "Hz", Status: StatusValid}}
+	unavailable, err := filterFrequencyItems(context.Background(), validInput, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundUnavailable := false
+	for _, item := range unavailable {
+		if item.MetricID == MetricFrequencyCurrent && item.Status == StatusUnavailable {
+			foundUnavailable = true
+		}
+	}
+	if !foundUnavailable {
+		t.Fatalf("unmapped frequency domain should be unavailable: %#v", unavailable)
 	}
 }
 
