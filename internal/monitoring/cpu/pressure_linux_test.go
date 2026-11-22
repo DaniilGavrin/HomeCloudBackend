@@ -4,6 +4,7 @@ package cpu
 
 import (
 	"context"
+	"time"
 	"os"
 	"path/filepath"
 	"testing"
