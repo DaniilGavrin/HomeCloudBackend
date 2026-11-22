@@ -483,17 +483,25 @@ func itemsFor(current Snapshot, previous *Snapshot, observedAt time.Time) []Metr
 	items := make([]MetricItem, 0, 16+len(current.Cores)*3+len(current.Issues))
 	if aggregateAvailable(current) {
 		c := current.Counters
+		qualityStatus := current.AggregateStatus
+		if qualityStatus == "" {
+			qualityStatus = StatusValid
+		}
+		qualityReason, qualityCode := "", ""
+		if qualityStatus == StatusPartial {
+			qualityReason, qualityCode = "partial_source", "PARTIAL_RESULT"
+		}
 		items = append(items,
-			MetricItem{MetricID: MetricUser, Value: counterNanoseconds(c.UserSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
-			MetricItem{MetricID: MetricSystem, Value: counterNanoseconds(c.SystemSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
-			MetricItem{MetricID: MetricNice, Value: counterNanoseconds(c.NiceSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
-			MetricItem{MetricID: MetricIdle, Value: counterNanoseconds(c.IdleSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
-			MetricItem{MetricID: MetricIOWait, Value: counterNanoseconds(c.IOWaitSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
-			MetricItem{MetricID: MetricIRQ, Value: counterNanoseconds(c.IRQSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
-			MetricItem{MetricID: MetricSoftIRQ, Value: counterNanoseconds(c.SoftIRQSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
-			MetricItem{MetricID: MetricSteal, Value: counterNanoseconds(c.StealSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
-			MetricItem{MetricID: MetricGuest, Value: counterNanoseconds(c.GuestSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
-			MetricItem{MetricID: MetricGuestNice, Value: counterNanoseconds(c.GuestNiceSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: StatusValid},
+			MetricItem{MetricID: MetricUser, Value: counterNanoseconds(c.UserSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: qualityStatus, Reason: qualityReason, ErrorCode: qualityCode},
+			MetricItem{MetricID: MetricSystem, Value: counterNanoseconds(c.SystemSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: qualityStatus, Reason: qualityReason, ErrorCode: qualityCode},
+			MetricItem{MetricID: MetricNice, Value: counterNanoseconds(c.NiceSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: qualityStatus, Reason: qualityReason, ErrorCode: qualityCode},
+			MetricItem{MetricID: MetricIdle, Value: counterNanoseconds(c.IdleSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: qualityStatus, Reason: qualityReason, ErrorCode: qualityCode},
+			MetricItem{MetricID: MetricIOWait, Value: counterNanoseconds(c.IOWaitSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: qualityStatus, Reason: qualityReason, ErrorCode: qualityCode},
+			MetricItem{MetricID: MetricIRQ, Value: counterNanoseconds(c.IRQSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: qualityStatus, Reason: qualityReason, ErrorCode: qualityCode},
+			MetricItem{MetricID: MetricSoftIRQ, Value: counterNanoseconds(c.SoftIRQSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: qualityStatus, Reason: qualityReason, ErrorCode: qualityCode},
+			MetricItem{MetricID: MetricSteal, Value: counterNanoseconds(c.StealSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: qualityStatus, Reason: qualityReason, ErrorCode: qualityCode},
+			MetricItem{MetricID: MetricGuest, Value: counterNanoseconds(c.GuestSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: qualityStatus, Reason: qualityReason, ErrorCode: qualityCode},
+			MetricItem{MetricID: MetricGuestNice, Value: counterNanoseconds(c.GuestNiceSeconds), Unit: "ns", ObservedAt: timestamp, SourceID: "gopsutil.cpu.times", Status: qualityStatus, Reason: qualityReason, ErrorCode: qualityCode},
 		)
 		if previous != nil && aggregateAvailable(*previous) {
 			if value, ok := CalculateTotalUsage(previous.Counters, c); ok {
@@ -501,7 +509,13 @@ func itemsFor(current Snapshot, previous *Snapshot, observedAt time.Time) []Metr
 				if windowMS <= 0 {
 					items = append(items, statusItem(MetricTotalUsage, "", StatusInvalid, "invalid_window", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", observedAt))
 				} else {
-					items = append(items, MetricItem{MetricID: MetricTotalUsage, Value: value, Unit: "percent", ObservedAt: timestamp, WindowMS: windowMS, SourceID: "gopsutil.cpu.times", Status: StatusValid})
+					qualityStatus := StatusValid
+				qualityReason, qualityCode := "", ""
+				if current.AggregateStatus == StatusPartial || previous.AggregateStatus == StatusPartial {
+					qualityStatus = StatusPartial
+					qualityReason, qualityCode = "partial_source", "PARTIAL_RESULT"
+				}
+				items = append(items, MetricItem{MetricID: MetricTotalUsage, Value: value, Unit: "percent", ObservedAt: timestamp, WindowMS: windowMS, SourceID: "gopsutil.cpu.times", Status: qualityStatus, Reason: qualityReason, ErrorCode: qualityCode})
 				}
 			} else {
 				items = append(items, statusItem(MetricTotalUsage, "", StatusUnavailable, "counter_reset", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", observedAt))
