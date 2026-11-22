@@ -122,9 +122,7 @@ func validTarget(target string) bool {
 		MetricPerfLLCReadMissRate, MetricPerfDTLBReadMissRate, MetricPerfITLBReadMissRate:
 		return true
 	default:
-		return strings.HasPrefix(target, MetricCStateTarget+".") ||
-			strings.HasPrefix(target, MetricPressureTarget+".") ||
-			strings.HasPrefix(target, MetricPerfTarget+".")
+		return strings.HasPrefix(target, MetricCStateTarget+".")
 	}
 }
 
@@ -786,7 +784,13 @@ func (m *Manager) publish(ctx context.Context, items []MetricItem) {
 			}
 		}
 		if len(filtered) == 0 {
-			continue
+			if strings.HasPrefix(sub.target, MetricCStateTarget+".") {
+				filtered = []MetricItem{
+					statusItem(sub.target, "", StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpuidle", time.Now().UTC()),
+				}
+			} else {
+				continue
+			}
 		}
 		nodeID := ""
 		if m.nodeID != nil {
