@@ -404,15 +404,17 @@ type metricResult struct {
 }
 
 type intervalCommandParams struct {
-	SampleInterval json.RawMessage `json:"sample_interval"`
-	WindowMS       json.RawMessage `json:"window_ms"`
+	SampleInterval   json.RawMessage `json:"sample_interval"`
+	SampleIntervalMS json.RawMessage `json:"sample_interval_ms"`
+	WindowMS         json.RawMessage `json:"window_ms"`
 }
 
 type coreUsageCommandParams struct {
-	SampleInterval json.RawMessage `json:"sample_interval"`
-	WindowMS       json.RawMessage `json:"window_ms"`
-	CPUId          *int64          `json:"cpu_id"`
-	CoreID         *int64          `json:"core_id"`
+	SampleInterval   json.RawMessage `json:"sample_interval"`
+	SampleIntervalMS json.RawMessage `json:"sample_interval_ms"`
+	WindowMS         json.RawMessage `json:"window_ms"`
+	CPUId            *int64          `json:"cpu_id"`
+	CoreID           *int64          `json:"core_id"`
 }
 
 func decodeStrictParams(data json.RawMessage, destination any, allowedFields ...string) error {
@@ -444,12 +446,29 @@ func rejectUnexpectedParams(data json.RawMessage) error {
 	return decodeStrictParams(data, nil)
 }
 
-func parseIntervalFields(sampleInterval, windowMS json.RawMessage) (time.Duration, error) {
-	if len(sampleInterval) > 0 && len(windowMS) > 0 {
-		return 0, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "sample_interval and window_ms cannot be used together", false, nil)
+func parseIntervalFields(sampleInterval, sampleIntervalMS, windowMS json.RawMessage) (time.Duration, error) {
+	provided := 0
+	for _, raw := range []json.RawMessage{sampleInterval, sampleIntervalMS, windowMS} {
+		if len(raw) > 0 {
+			provided++
+		}
 	}
-	if len(sampleInterval) == 0 && len(windowMS) == 0 {
+	if provided > 1 {
+		return 0, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "sample_interval, sample_interval_ms and window_ms cannot be used together", false, nil)
+	}
+	if provided == 0 {
 		return DefaultWindow, nil
+	}
+	if len(sampleIntervalMS) > 0 {
+		var milliseconds int64
+		if err := json.Unmarshal(sampleIntervalMS, &milliseconds); err != nil {
+			return 0, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "sample_interval_ms must be an integer", false, err)
+		}
+		duration := time.Duration(milliseconds) * time.Millisecond
+		if err := validateWindow(duration); err != nil {
+			return 0, err
+		}
+		return duration, nil
 	}
 	var duration time.Duration
 	if len(sampleInterval) > 0 {
@@ -664,10 +683,10 @@ func filterFrequencyItems(ctx context.Context, items []MetricItem, params freque
 func RegisterCommands(registry *commands.Registry, collector Collector) {
 	registry.MustRegister(MetricTotalUsage, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
 		var params intervalCommandParams
-		if err := decodeStrictParams(msg.Data, &params, "sample_interval", "window_ms"); err != nil {
+		if err := decodeStrictParams(msg.Data, &params, "sample_interval", "sample_interval_ms", "window_ms"); err != nil {
 			return nil, err
 		}
-		window, err := parseIntervalFields(params.SampleInterval, params.WindowMS)
+		window, err := parseIntervalFields(params.SampleInterval, params.SampleIntervalMS, params.WindowMS)
 		if err != nil {
 			return nil, err
 		}
