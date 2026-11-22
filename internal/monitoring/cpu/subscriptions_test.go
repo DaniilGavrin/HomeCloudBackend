@@ -105,6 +105,39 @@ func TestNewCPUTargetsAreAccepted(t *testing.T) {
 	}
 }
 
+func TestBaseCPUSubscriptionDoesNotReceiveOptInPMUMetrics(t *testing.T) {
+	manager := NewManager(testCollector{}, nil)
+	defer manager.Close()
+
+	var baseItems, perfItems []MetricItem
+	baseDelivery := func(_ context.Context, message commands.Outbound) error {
+		payload := message.Payload.(map[string]any)
+		baseItems = append(baseItems, payload["items"].([]MetricItem)...)
+		return nil
+	}
+	perfDelivery := func(_ context.Context, message commands.Outbound) error {
+		payload := message.Payload.(map[string]any)
+		perfItems = append(perfItems, payload["items"].([]MetricItem)...)
+		return nil
+	}
+	if _, err := manager.Subscribe(1, Target, EffectiveInterval, baseDelivery); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Subscribe(2, MetricPerfTarget, EffectiveInterval, perfDelivery); err != nil {
+		t.Fatal(err)
+	}
+	manager.publish(context.Background(), []MetricItem{
+		{MetricID: MetricTotalUsage, Value: 25.0, Unit: "percent"},
+		{MetricID: MetricPerfCycles, Value: uint64(100), Unit: "count"},
+	})
+	if len(baseItems) != 1 || baseItems[0].MetricID != MetricTotalUsage {
+		t.Fatalf("base CPU subscription received opt-in PMU data: %#v", baseItems)
+	}
+	if len(perfItems) != 1 || perfItems[0].MetricID != MetricPerfCycles {
+		t.Fatalf("PMU subscription did not receive its selected metric: %#v", perfItems)
+	}
+}
+
 func TestPerCoreSubscriptionDeliversAllMatchingObjects(t *testing.T) {
 	manager := NewManager(testCollector{}, func() string { return "node-test" })
 	defer manager.Close()
