@@ -225,7 +225,7 @@ func TestReadLinuxFrequencyReportsExactCurrentFrequencySource(t *testing.T) {
 		t.Fatalf("current policy frequency = %#v (found=%v)", current, ok)
 	}
 	core, ok := findMetric(items, MetricCoreFrequency, "cpu0")
-	if !ok || core.Value != int64(2_500_000_000) || core.SourceID != "linux.host.sysfs.cpufreq.scaling_cur_freq" {
+	if !ok || core.Value != int64(2_500_000_000) || core.SourceID != "linux.host.sysfs.cpufreq.scaling_cur_freq" || core.Status != StatusPartial || core.Reason != "shared_frequency_policy" {
 		t.Fatalf("current core frequency = %#v (found=%v)", core, ok)
 	}
 
@@ -242,7 +242,7 @@ func TestReadLinuxFrequencyReportsExactCurrentFrequencySource(t *testing.T) {
 		t.Fatalf("fallback current policy frequency = %#v (found=%v)", current, ok)
 	}
 	core, ok = findMetric(items, MetricCoreFrequency, "cpu0")
-	if !ok || core.Value != int64(2_600_000_000) || core.SourceID != "linux.host.sysfs.cpufreq.cpuinfo_cur_freq" {
+	if !ok || core.Value != int64(2_600_000_000) || core.SourceID != "linux.host.sysfs.cpufreq.cpuinfo_cur_freq" || core.Status != StatusPartial {
 		t.Fatalf("fallback current core frequency = %#v (found=%v)", core, ok)
 	}
 }
