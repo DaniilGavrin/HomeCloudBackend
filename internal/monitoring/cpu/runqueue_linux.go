@@ -37,10 +37,10 @@ func (c *SystemCollector) ReadSystemCounters(ctx context.Context) ([]MetricItem,
 	return items, nil
 }
 
-// readLinuxRunQueue uses only scheduler data whose semantics match the
-// run-queue metric: runnable tasks waiting to be scheduled. /proc/stat's
-// procs_running also includes currently executing tasks, so it is not a
-// compatible fallback and must never be reported as system.cpu.runqueue.
+// readLinuxRunQueue reports runnable tasks waiting for a CPU. Linux rq.nr_running
+// includes the task currently executing on that CPU, so the parser subtracts
+// one for each non-idle current task. /proc/stat procs_running includes both
+// running and runnable tasks and is not a compatible fallback.
 func readLinuxRunQueue(ctx context.Context, schedDebugPaths []string) MetricItem {
 	now := time.Now().UTC()
 	var lastReadErr error
@@ -63,7 +63,7 @@ func readLinuxRunQueue(ctx context.Context, schedDebugPaths []string) MetricItem
 			return MetricItem{
 				MetricID: MetricRunQueue, Value: count, Unit: "count",
 				ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid,
-				SourceID: "linux.host.proc.sched_debug.nr_running",
+				SourceID: "linux.host.proc.sched_debug.waiting_tasks",
 			}
 		}
 	}
@@ -76,38 +76,89 @@ func readLinuxRunQueue(ctx context.Context, schedDebugPaths []string) MetricItem
 }
 
 func parseSchedDebugRunQueue(data []byte) (uint64, bool, error) {
+	type cpuRunQueue struct {
+		nrRunning uint64
+		currentPID uint64
+		hasNRRunning bool
+		hasCurrentPID bool
+	}
+
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	var total uint64
-	found := false
+	var current cpuRunQueue
+	foundCPU := false
+
+	flushCPU := func() error {
+		if !foundCPU || !current.hasNRRunning || !current.hasCurrentPID {
+			return errors.New("scheduler debug CPU block lacks nr_running or curr->pid")
+		}
+		waiting := current.nrRunning
+		if current.currentPID != 0 {
+			if waiting == 0 {
+				return errors.New("scheduler debug running task exceeds nr_running")
+			}
+			waiting--
+		}
+		if ^uint64(0)-total < waiting {
+			return errors.New("scheduler runqueue aggregate overflow")
+		}
+		total += waiting
+		return nil
+	}
+
 	for scanner.Scan() {
 		rawLine := scanner.Text()
+		line := strings.TrimSpace(rawLine)
+		if strings.HasPrefix(line, "cpu#") {
+			if foundCPU {
+				if err := flushCPU(); err != nil {
+					return 0, false, nil
+				}
+			}
+			current = cpuRunQueue{}
+			foundCPU = true
+			continue
+		}
+
 		indent := len(rawLine) - len(strings.TrimLeft(rawLine, " \t"))
-		// Count only the runqueue-level nr_running entry. Nested cfs_rq
-		// entries describe sub-queues and would otherwise be double-counted.
+		// Only per-CPU runqueue fields are relevant. Nested cfs_rq entries
+		// are not independent CPU runqueues and must not be double-counted.
 		if indent > 2 {
 			continue
 		}
-		line := strings.TrimSpace(rawLine)
-		if !strings.Contains(line, "nr_running") {
-			continue
+		if strings.Contains(line, "nr_running") {
+			value, err := parseSchedDebugUint(line)
+			if err != nil {
+				return 0, false, err
+			}
+			current.nrRunning = value
+			current.hasNRRunning = true
+		} else if strings.Contains(line, "curr->pid") {
+			value, err := parseSchedDebugUint(line)
+			if err != nil {
+				return 0, false, err
+			}
+			current.currentPID = value
+			current.hasCurrentPID = true
 		}
-		parts := strings.Fields(line)
-		if len(parts) == 0 {
-			continue
-		}
-		raw := strings.Trim(parts[len(parts)-1], ",")
-		value, err := strconv.ParseUint(raw, 10, 64)
-		if err != nil {
-			return 0, false, err
-		}
-		if ^uint64(0)-total < value {
-			return 0, false, errors.New("scheduler runqueue counter overflow")
-		}
-		total += value
-		found = true
 	}
 	if err := scanner.Err(); err != nil {
 		return 0, false, err
 	}
-	return total, found, nil
+	if !foundCPU {
+		return 0, false, nil
+	}
+	if err := flushCPU(); err != nil {
+		return 0, false, nil
+	}
+	return total, true, nil
+}
+
+func parseSchedDebugUint(line string) (uint64, error) {
+	_, raw, ok := strings.Cut(line, ":")
+	if !ok {
+		return 0, errors.New("invalid scheduler debug field")
+	}
+	raw = strings.TrimSpace(raw)
+	return strconv.ParseUint(raw, 10, 64)
 }
