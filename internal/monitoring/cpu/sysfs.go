@@ -266,7 +266,14 @@ func sortedCoreAvailabilityIDs(availability map[string]CoreAvailability) []strin
 	for objectID := range availability {
 		ids = append(ids, objectID)
 	}
-	sort.Strings(ids)
+	sort.Slice(ids, func(i, j int) bool {
+		left, leftErr := strconv.Atoi(strings.TrimPrefix(ids[i], "cpu"))
+		right, rightErr := strconv.Atoi(strings.TrimPrefix(ids[j], "cpu"))
+		if leftErr != nil || rightErr != nil {
+			return ids[i] < ids[j]
+		}
+		return left < right
+	})
 	return ids
 }
 
