@@ -246,3 +246,35 @@ func TestReadLinuxFrequencyReportsExactCurrentFrequencySource(t *testing.T) {
 		t.Fatalf("fallback shared policy must not be reported as a per-core frequency: %#v (found=%v)", core, ok)
 	}
 }
+
+
+func TestReadLinuxCoreAvailability(t *testing.T) {
+	root := t.TempDir()
+	writeSysfsTestFile(t, filepath.Join(root, "present"), "0-3")
+	writeSysfsTestFile(t, filepath.Join(root, "online"), "0,2")
+	availability, known := readLinuxCoreAvailability(root)
+	if !known {
+		t.Fatal("expected CPU availability to be known")
+	}
+	if availability["cpu0"] != (CoreAvailability{Present: true, Online: true}) {
+		t.Fatalf("cpu0 availability = %#v", availability["cpu0"])
+	}
+	if availability["cpu1"] != (CoreAvailability{Present: true, Online: false}) {
+		t.Fatalf("cpu1 availability = %#v", availability["cpu1"])
+	}
+	if availability["cpu2"] != (CoreAvailability{Present: true, Online: true}) {
+		t.Fatalf("cpu2 availability = %#v", availability["cpu2"])
+	}
+	if availability["cpu3"] != (CoreAvailability{Present: true, Online: false}) {
+		t.Fatalf("cpu3 availability = %#v", availability["cpu3"])
+	}
+}
+
+func TestReadLinuxCoreAvailabilityRejectsInconsistentOnlineSet(t *testing.T) {
+	root := t.TempDir()
+	writeSysfsTestFile(t, filepath.Join(root, "present"), "0-1")
+	writeSysfsTestFile(t, filepath.Join(root, "online"), "0-2")
+	if _, known := readLinuxCoreAvailability(root); known {
+		t.Fatal("online CPU outside present set must not produce trusted availability")
+	}
+}
