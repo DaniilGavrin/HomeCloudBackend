@@ -710,7 +710,7 @@ func (m *Manager) publishExtendedError(ctx context.Context, target string, cause
 		case MetricPerfTarget:
 			matches = sub.target == target || strings.HasPrefix(sub.target, target+".")
 		case "system.cpu":
-			matches = isSystemCounterTarget(sub.target)
+			matches = sub.target == Target || isSystemCounterTarget(sub.target)
 		}
 		if !matches {
 			continue
