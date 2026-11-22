@@ -534,3 +534,17 @@ func TestApplyCoreAvailabilityOverridesUnexpectedOfflineCoreSample(t *testing.T)
 		t.Fatalf("offline CPU must not be emitted as a valid counter: %#v", items)
 	}
 }
+
+
+func TestSampleWindowMillisecondsRequiresObservedTimestamps(t *testing.T) {
+	now := time.Now().UTC()
+	if got := sampleWindowMilliseconds(Snapshot{}, Snapshot{CollectedAt: now}); got != 0 {
+		t.Fatalf("missing start timestamp produced synthetic window %dms", got)
+	}
+	if got := sampleWindowMilliseconds(Snapshot{CollectedAt: now}, Snapshot{}); got != 0 {
+		t.Fatalf("missing end timestamp produced synthetic window %dms", got)
+	}
+	if got := sampleWindowMilliseconds(Snapshot{CollectedAt: now}, Snapshot{CollectedAt: now.Add(1250 * time.Millisecond)}); got != 1250 {
+		t.Fatalf("observed window = %dms, want 1250", got)
+	}
+}
