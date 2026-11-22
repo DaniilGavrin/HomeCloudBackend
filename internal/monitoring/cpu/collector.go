@@ -556,7 +556,28 @@ func filterFrequencyItems(ctx context.Context, items []MetricItem, params freque
 	}
 	statusItems := make([]MetricItem, 0, len(metricIDs))
 	for _, metricID := range metricIDs {
-		statusItems = append(statusItems, statusItem(metricID, requestedObject, StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "linux.sysfs.cpufreq", now))
+		status, reason, code := StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE"
+		foundSourceStatus := false
+		hasValidSource := false
+		for _, item := range items {
+			if item.MetricID != metricID {
+				continue
+			}
+			if item.Status == "" || item.Status == StatusValid {
+				hasValidSource = true
+				continue
+			}
+			if !foundSourceStatus {
+				status, reason, code = item.Status, item.Reason, item.ErrorCode
+				foundSourceStatus = true
+			} else if status != item.Status || reason != item.Reason || code != item.ErrorCode {
+				status, reason, code = StatusPartial, "partial_source", "PARTIAL_RESULT"
+			}
+		}
+		if hasValidSource {
+			status, reason, code = StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE"
+		}
+		statusItems = append(statusItems, statusItem(metricID, requestedObject, status, reason, code, "linux.sysfs.cpufreq", now))
 	}
 	return statusItems, nil
 }
