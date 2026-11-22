@@ -144,7 +144,7 @@ func readLinuxThrottling(ctx context.Context, cpuSysfsPath string) ([]MetricItem
 		return []MetricItem{statusItem(MetricThrottlingTarget, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.sysfs.thermal_throttle", now)}, nil
 	}
 	if len(cpuIDs) == 0 {
-		return []MetricItem{statusItem(MetricThrottlingTarget, "", StatusUnsupported, "not_discovered", "SOURCE_UNAVAILABLE", "linux.sysfs.thermal_throttle", now)}, nil
+		return []MetricItem{statusItem(MetricThrottlingTarget, "", StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "linux.sysfs.thermal_throttle", now)}, nil
 	}
 	sort.Ints(cpuIDs)
 
