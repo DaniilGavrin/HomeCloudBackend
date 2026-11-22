@@ -121,7 +121,7 @@ func snapshotFromStats(aggregateStats []cpu.TimesStat, aggregateErr error, perCP
 		}
 	}
 
-	if perCPUErr != nil || len(perCPUStats) == 0 {
+	if len(perCPUStats) == 0 {
 		if perCPUErr == nil {
 			perCPUErr = errors.New("per-CPU counters are unavailable")
 		}
@@ -132,6 +132,15 @@ func snapshotFromStats(aggregateStats []cpu.TimesStat, aggregateErr error, perCP
 			statusItem(MetricCoreUsage, "", status, reason, code, "gopsutil.cpu.times", now),
 		)
 		return result
+	}
+	if perCPUErr != nil {
+		// gopsutil may return usable CPU rows together with a source error.
+		// Preserve those rows and mark the per-CPU collection as partial.
+		result.Issues = append(result.Issues,
+			statusItem(MetricCoreUser, "", StatusPartial, "partial_source", "PARTIAL_RESULT", "gopsutil.cpu.times", now),
+			statusItem(MetricCoreTotalUsage, "", StatusPartial, "partial_source", "PARTIAL_RESULT", "gopsutil.cpu.times", now),
+			statusItem(MetricCoreUsage, "", StatusPartial, "partial_source", "PARTIAL_RESULT", "gopsutil.cpu.times", now),
+		)
 	}
 
 	seen := make(map[string]struct{}, len(perCPUStats))
