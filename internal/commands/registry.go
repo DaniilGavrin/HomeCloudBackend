@@ -137,7 +137,6 @@ func setOutboundErrorMetadata(response *Outbound, err error) {
 		response.ErrorCategory = "timeout"
 		response.Retryable = false
 	default:
-		response.Error = "command execution failed"
 		response.ErrorCode = "PROVIDER_FAILURE"
 		response.ErrorCategory = "execution"
 		response.Retryable = false
