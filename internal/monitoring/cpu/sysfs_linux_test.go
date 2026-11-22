@@ -205,3 +205,44 @@ func TestFrequencyPolicyCPUResolution(t *testing.T) {
 		t.Fatal("frequency-domain validation accepted invalid policy ID or rejected policy1")
 	}
 }
+
+func TestReadLinuxFrequencyReportsExactCurrentFrequencySource(t *testing.T) {
+	root := t.TempDir()
+	policy := filepath.Join(root, "cpufreq", "policy0")
+	writeSysfsTestFile(t, filepath.Join(policy, "affected_cpus"), "0-1")
+	writeSysfsTestFile(t, filepath.Join(policy, "scaling_cur_freq"), "2500000")
+	writeSysfsTestFile(t, filepath.Join(policy, "cpuinfo_min_freq"), "800000")
+	writeSysfsTestFile(t, filepath.Join(policy, "cpuinfo_max_freq"), "4000000")
+	writeSysfsTestFile(t, filepath.Join(policy, "base_frequency"), "3000000")
+	writeSysfsTestFile(t, filepath.Join(policy, "scaling_governor"), "schedutil")
+
+	items, err := readLinuxFrequency(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, ok := findMetric(items, MetricFrequencyCurrent, "policy0")
+	if !ok || current.Value != int64(2_500_000_000) || current.SourceID != "linux.host.sysfs.cpufreq.scaling_cur_freq" {
+		t.Fatalf("current policy frequency = %#v (found=%v)", current, ok)
+	}
+	core, ok := findMetric(items, MetricCoreFrequency, "cpu0")
+	if !ok || core.Value != int64(2_500_000_000) || core.SourceID != "linux.host.sysfs.cpufreq.scaling_cur_freq" {
+		t.Fatalf("current core frequency = %#v (found=%v)", core, ok)
+	}
+
+	if err := os.Remove(filepath.Join(policy, "scaling_cur_freq")); err != nil {
+		t.Fatal(err)
+	}
+	writeSysfsTestFile(t, filepath.Join(policy, "cpuinfo_cur_freq"), "2600000")
+	items, err = readLinuxFrequency(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, ok = findMetric(items, MetricFrequencyCurrent, "policy0")
+	if !ok || current.Value != int64(2_600_000_000) || current.SourceID != "linux.host.sysfs.cpufreq.cpuinfo_cur_freq" {
+		t.Fatalf("fallback current policy frequency = %#v (found=%v)", current, ok)
+	}
+	core, ok = findMetric(items, MetricCoreFrequency, "cpu0")
+	if !ok || core.Value != int64(2_600_000_000) || core.SourceID != "linux.host.sysfs.cpufreq.cpuinfo_cur_freq" {
+		t.Fatalf("fallback current core frequency = %#v (found=%v)", core, ok)
+	}
+}
