@@ -107,8 +107,8 @@ func TestReadLinuxSystemCounters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 6 {
-		t.Fatalf("system counters = %d, want 6 including runqueue: %#v", len(items), items)
+	if len(items) != 5 {
+		t.Fatalf("system counters = %d, want 5; waiting-only runqueue is collected from scheduler debug separately: %#v", len(items), items)
 	}
 	want := []struct {
 		metricID string
@@ -119,7 +119,6 @@ func TestReadLinuxSystemCounters(t *testing.T) {
 		{MetricForks, 54321},
 		{MetricProcessesRunning, 4},
 		{MetricProcessesBlocked, 2},
-		{MetricRunQueue, 4},
 	}
 	for i, expected := range want {
 		if items[i].MetricID != expected.metricID || items[i].Value != expected.value || items[i].Unit != "count" {
