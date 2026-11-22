@@ -308,3 +308,34 @@ func TestUsageSampleFromSnapshotsRejectsNonPositiveWindow(t *testing.T) {
 		t.Fatal("expected non-positive observed window to be rejected")
 	}
 }
+
+
+func TestSnapshotFromStatsPreservesPartialAggregateRow(t *testing.T) {
+	now := time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)
+	aggregate := []cpu.TimesStat{{
+		CPU: "cpu-total", User: 20, System: 10, Idle: 60, Iowait: 5,
+	}}
+	perCPU := []cpu.TimesStat{{
+		CPU: "cpu0", User: 20, System: 10, Idle: 60, Iowait: 5,
+	}}
+	snapshot := snapshotFromStats(aggregate, errors.New("provider returned partial data"), perCPU, nil, now)
+	if snapshot.AggregateStatus != StatusPartial {
+		t.Fatalf("aggregate status = %q, want partial", snapshot.AggregateStatus)
+	}
+	if snapshot.Counters.UserSeconds != 20 {
+		t.Fatalf("valid aggregate row was discarded: %#v", snapshot.Counters)
+	}
+	items := itemsFor(snapshot, nil, now)
+	found := false
+	for _, item := range items {
+		if item.MetricID == MetricUser {
+			found = item.Value == int64(20_000_000_000) &&
+				item.Status == StatusPartial &&
+				item.Reason == "partial_source" &&
+				item.ErrorCode == "PARTIAL_RESULT"
+		}
+	}
+	if !found {
+		t.Fatalf("aggregate metric must preserve value with partial quality: %#v", items)
+	}
+}
