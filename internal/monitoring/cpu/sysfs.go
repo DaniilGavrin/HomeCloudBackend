@@ -193,9 +193,16 @@ func readLinuxFrequency(ctx context.Context, cpuSysfsPath string) ([]MetricItem,
 					items = append(items, statusItem(MetricCoreFrequency, coreObjectID, status, reason, code, currentSourceID, now))
 					continue
 				}
+				status, reason, code := StatusValid, "", ""
+				if len(cpuIDs) > 1 {
+					// cpufreq exposes one shared policy value for this CPU set,
+					// not an independently measured clock for each logical CPU.
+					status, reason, code = StatusPartial, "shared_frequency_policy", "PARTIAL_RESULT"
+				}
 				items = append(items, MetricItem{
 					MetricID: MetricCoreFrequency, ObjectID: coreObjectID, Value: int64(currentHz), Unit: "Hz",
-					ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid, SourceID: currentSourceID,
+					ObservedAt: now.Format(time.RFC3339Nano), Status: status, Reason: reason,
+					ErrorCode: code, SourceID: currentSourceID,
 				})
 			}
 		}
