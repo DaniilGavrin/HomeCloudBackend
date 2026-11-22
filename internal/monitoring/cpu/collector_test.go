@@ -1,6 +1,7 @@
 package cpu
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
