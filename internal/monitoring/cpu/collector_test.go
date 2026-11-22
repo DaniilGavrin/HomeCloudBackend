@@ -40,7 +40,7 @@ func TestCalculateTotalUsage(t *testing.T) {
 	}
 }
 
-func TestCoreTotalUsageReportsHotpluggedOfflineCPU(t *testing.T) {
+func TestCoreTotalUsageReportsMissingCPUWithoutAssumingOffline(t *testing.T) {
 	previous := []CoreCounters{
 		{ObjectID: "cpu0", Counters: Counters{TotalSeconds: 10, IdleSeconds: 5}},
 		{ObjectID: "cpu1", Counters: Counters{TotalSeconds: 10, IdleSeconds: 5}},
@@ -52,11 +52,11 @@ func TestCoreTotalUsageReportsHotpluggedOfflineCPU(t *testing.T) {
 	foundOffline := false
 	for _, item := range items {
 		if item.ObjectID == "cpu1" && item.MetricID == MetricCoreUsage {
-			foundOffline = item.Status == StatusUnavailable && item.Reason == "cpu_offline"
+			foundOffline = item.Status == StatusUnavailable && item.Reason == "source_failure"
 		}
 	}
 	if !foundOffline {
-		t.Fatalf("removed logical CPU did not receive an offline status: %#v", items)
+		t.Fatalf("missing logical CPU did not receive a source-failure status: %#v", items)
 	}
 }
 
