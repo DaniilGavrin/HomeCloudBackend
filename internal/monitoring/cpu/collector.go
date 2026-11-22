@@ -465,6 +465,9 @@ func parseIntervalFields(sampleInterval, sampleIntervalMS, windowMS json.RawMess
 		if err := json.Unmarshal(sampleIntervalMS, &milliseconds); err != nil {
 			return 0, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "sample_interval_ms must be an integer", false, err)
 		}
+		if milliseconds <= 0 || milliseconds > int64(maxWindow/time.Millisecond) {
+			return 0, commands.NewClassifiedError("VALIDATION_OUT_OF_RANGE", "validation", "sample_interval_ms is outside the supported range", false, nil)
+		}
 		duration := time.Duration(milliseconds) * time.Millisecond
 		if err := validateWindow(duration); err != nil {
 			return 0, err
