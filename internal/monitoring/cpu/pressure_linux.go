@@ -100,10 +100,10 @@ func readLinuxCPUPressure(ctx context.Context, path string) ([]MetricItem, error
 		values := parsed[metric.name]
 		if !values.seen {
 			for _, window := range []int64{10_000, 60_000, 300_000} {
-				items = append(items, statusItem(metric.id, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "linux.proc.pressure.cpu", now))
+				items = append(items, statusItem(metric.id, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "linux.host.proc.pressure.cpu", now))
 				items[len(items)-1].WindowMS = window
 			}
-			items = append(items, statusItem(metric.id, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "linux.proc.pressure.cpu", now))
+			items = append(items, statusItem(metric.id, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "linux.host.proc.pressure.cpu", now))
 			continue
 		}
 		for _, window := range []struct {
@@ -120,7 +120,7 @@ func readLinuxCPUPressure(ctx context.Context, path string) ([]MetricItem, error
 				if values.invalid[window.key] {
 					status, reason, code = StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA"
 				}
-				item := statusItem(metric.id, "", status, reason, code, "linux.proc.pressure.cpu", now)
+				item := statusItem(metric.id, "", status, reason, code, "linux.host.proc.pressure.cpu", now)
 				item.WindowMS = window.ms
 				items = append(items, item)
 				continue
@@ -128,7 +128,7 @@ func readLinuxCPUPressure(ctx context.Context, path string) ([]MetricItem, error
 			items = append(items, MetricItem{
 				MetricID: metric.id, Value: value, Unit: "percent",
 				ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid,
-				SourceID: "linux.proc.pressure.cpu", WindowMS: window.ms,
+				SourceID: "linux.host.proc.pressure.cpu", WindowMS: window.ms,
 			})
 		}
 		if !values.totalSeen {
@@ -136,13 +136,13 @@ func readLinuxCPUPressure(ctx context.Context, path string) ([]MetricItem, error
 			if values.invalid["total"] {
 				status, reason, code = StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA"
 			}
-			items = append(items, statusItem(metric.id, "", status, reason, code, "linux.proc.pressure.cpu", now))
+			items = append(items, statusItem(metric.id, "", status, reason, code, "linux.host.proc.pressure.cpu", now))
 			continue
 		}
 		items = append(items, MetricItem{
 			MetricID: metric.id, Value: int64(values.total * 1000), Unit: "ns",
 			ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid,
-			SourceID: "linux.proc.pressure.cpu",
+			SourceID: "linux.host.proc.pressure.cpu",
 		})
 	}
 	return items, nil
@@ -152,11 +152,11 @@ func pressureStatusItems(status, reason, code string, observedAt time.Time) []Me
 	items := make([]MetricItem, 0, 8)
 	for _, metricID := range []string{MetricPressureSome, MetricPressureFull} {
 		for _, window := range []int64{10_000, 60_000, 300_000} {
-			item := statusItem(metricID, "", status, reason, code, "linux.proc.pressure.cpu", observedAt)
+			item := statusItem(metricID, "", status, reason, code, "linux.host.proc.pressure.cpu", observedAt)
 			item.WindowMS = window
 			items = append(items, item)
 		}
-		items = append(items, statusItem(metricID, "", status, reason, code, "linux.proc.pressure.cpu", observedAt))
+		items = append(items, statusItem(metricID, "", status, reason, code, "linux.host.proc.pressure.cpu", observedAt))
 	}
 	return items
 }
