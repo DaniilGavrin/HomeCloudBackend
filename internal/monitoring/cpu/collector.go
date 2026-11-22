@@ -268,21 +268,7 @@ func (c *SystemCollector) TotalUsageSample(ctx context.Context, window time.Dura
 	if err != nil {
 		return UsageSample{}, err
 	}
-	if !aggregateAvailable(after) {
-		return UsageSample{}, commands.NewClassifiedError("SOURCE_UNAVAILABLE", "source", "aggregate CPU counters are unavailable", true, nil)
-	}
-	value, ok := CalculateTotalUsage(before.Counters, after.Counters)
-	if !ok {
-		return UsageSample{}, commands.NewClassifiedError("SOURCE_INVALID_DATA", "source", "CPU counters did not advance during the measurement window", false, nil)
-	}
-	windowMS := after.CollectedAt.Sub(before.CollectedAt).Milliseconds()
-	if windowMS <= 0 {
-		return UsageSample{}, commands.NewClassifiedError("SOURCE_INVALID_DATA", "source", "CPU sample timestamps do not form a positive interval", false, nil)
-	}
-	return UsageSample{
-		Value: value, WindowStart: before.CollectedAt,
-		WindowEnd: after.CollectedAt, WindowMS: windowMS,
-	}, nil
+	return usageSampleFromSnapshots(before, after)
 }
 
 func usageSampleFromSnapshots(before, after Snapshot) (UsageSample, error) {
