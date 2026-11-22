@@ -884,12 +884,16 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 			if err != nil {
 				return nil, err
 			}
+			filtered := make([]MetricItem, 0)
 			for _, item := range items {
 				if item.MetricID == id {
-					return metricResultFromItem(item), nil
+					filtered = append(filtered, item)
 				}
 			}
-			return nil, ErrMetricUnsupported
+			if len(filtered) == 0 {
+				return nil, ErrMetricUnsupported
+			}
+			return filtered, nil
 		})
 	}
 
@@ -924,12 +928,16 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 			if err != nil {
 				return nil, err
 			}
+			filtered := make([]MetricItem, 0, 4)
 			for _, item := range items {
 				if item.MetricID == id {
-					return metricResultFromItem(item), nil
+					filtered = append(filtered, item)
 				}
 			}
-			return nil, ErrMetricUnsupported
+			if len(filtered) == 0 {
+				return nil, ErrMetricUnsupported
+			}
+			return filtered, nil
 		})
 	}
 	for _, metricID := range allPerfMetricIDs() {
