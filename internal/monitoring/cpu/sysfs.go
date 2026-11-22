@@ -421,6 +421,44 @@ func readSysfsValue(path string) (string, error) {
 	return strings.TrimSpace(string(value)), nil
 }
 
+func readLinuxCoreAvailability(cpuSysfsPath string) (map[string]CoreAvailability, bool) {
+	presentText, err := readSysfsValue(filepath.Join(cpuSysfsPath, "present"))
+	if err != nil {
+		return nil, false
+	}
+	onlineText, err := readSysfsValue(filepath.Join(cpuSysfsPath, "online"))
+	if err != nil {
+		return nil, false
+	}
+	presentIDs, err := parseCPUList(presentText)
+	if err != nil || len(presentIDs) == 0 {
+		return nil, false
+	}
+	onlineIDs, err := parseCPUList(onlineText)
+	if err != nil || len(onlineIDs) == 0 {
+		return nil, false
+	}
+	presentSet := make(map[int]bool, len(presentIDs))
+	for _, id := range presentIDs {
+		presentSet[id] = true
+	}
+	onlineSet := make(map[int]bool, len(onlineIDs))
+	for _, id := range onlineIDs {
+		if !presentSet[id] {
+			return nil, false
+		}
+		onlineSet[id] = true
+	}
+	result := make(map[string]CoreAvailability, len(presentIDs))
+	for _, id := range presentIDs {
+		result[fmt.Sprintf("cpu%d", id)] = CoreAvailability{
+			Present: true,
+			Online:  onlineSet[id],
+		}
+	}
+	return result, true
+}
+
 func parseCPUList(value string) ([]int, error) {
 	tokens := strings.Fields(value)
 	if len(tokens) == 0 {
