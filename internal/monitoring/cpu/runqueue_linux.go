@@ -46,7 +46,7 @@ func readLinuxRunQueue(ctx context.Context, procStatPath string, schedDebugPaths
 	var lastReadErr error
 	for _, path := range schedDebugPaths {
 		if err := ctx.Err(); err != nil {
-			return statusItem(MetricRunQueue, "", StatusCancelled, "cancelled", "REQUEST_CANCELLED", "linux.proc.sched_debug", now)
+			return statusItem(MetricRunQueue, "", StatusCancelled, "cancelled", "REQUEST_CANCELLED", "linux.host.proc.sched_debug", now)
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -57,14 +57,14 @@ func readLinuxRunQueue(ctx context.Context, procStatPath string, schedDebugPaths
 		}
 		count, found, parseErr := parseSchedDebugRunQueue(data)
 		if parseErr != nil {
-			return statusItem(MetricRunQueue, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.proc.sched_debug", now)
+			return statusItem(MetricRunQueue, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.host.proc.sched_debug", now)
 		}
 		if found {
 			return MetricItem{
 				MetricID: MetricRunQueue, Value: count, Unit: "count",
 				ObservedAt: now.Format(time.RFC3339Nano), Status: StatusPartial,
 				Reason: "includes_running_tasks", ErrorCode: "PARTIAL_RESULT",
-				SourceID: "linux.proc.sched_debug",
+				SourceID: "linux.host.proc.sched_debug",
 			}
 		}
 	}
@@ -75,20 +75,20 @@ func readLinuxRunQueue(ctx context.Context, procStatPath string, schedDebugPaths
 			err = lastReadErr
 		}
 		status, reason, code := classifySourceError(err)
-		return statusItem(MetricRunQueue, "", status, reason, code, "linux.proc.stat", now)
+		return statusItem(MetricRunQueue, "", status, reason, code, "linux.host.proc.stat", now)
 	}
 	value, found, parseErr := parseProcStatCounter(data, "procs_running")
 	if parseErr != nil {
-		return statusItem(MetricRunQueue, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.proc.stat", now)
+		return statusItem(MetricRunQueue, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.host.proc.stat", now)
 	}
 	if !found {
-		return statusItem(MetricRunQueue, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "linux.proc.stat", now)
+		return statusItem(MetricRunQueue, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "linux.host.proc.stat", now)
 	}
 	return MetricItem{
 		MetricID: MetricRunQueue, Value: value, Unit: "count",
 		ObservedAt: now.Format(time.RFC3339Nano), Status: StatusPartial,
 		Reason: "includes_running_tasks", ErrorCode: "PARTIAL_RESULT",
-		SourceID: "linux.proc.stat.procs_running",
+		SourceID: "linux.host.proc.stat.procs_running",
 	}
 }
 
