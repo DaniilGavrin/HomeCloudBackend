@@ -108,7 +108,7 @@ func (s *Server) handleMonitoringCommand(ctx context.Context, message Inbound, p
 
 	encoded, err := json.Marshal(result.Data)
 	if err != nil {
-		return s.commandError(message.CorrelationID, payload.CommandID, "PROVIDER_FAILURE", "execution", "failed to encode command result", false)
+		return s.commandError(message.CorrelationID, commandID, "PROVIDER_FAILURE", "execution", "failed to encode command result", false)
 	}
 	var metric map[string]any
 	if len(encoded) > 0 && json.Unmarshal(encoded, &metric) == nil && metric != nil {
@@ -119,7 +119,7 @@ func (s *Server) handleMonitoringCommand(ctx context.Context, message Inbound, p
 		if unit, ok := metric["unit"]; ok {
 			resultPayload["unit"] = unit
 		}
-		commandPayload := map[string]any{"command_id": payload.CommandID, "result": resultPayload}
+		commandPayload := map[string]any{"command_id": commandID, "result": resultPayload}
 		metadata := make(map[string]any)
 		for _, key := range []string{
 			"observed_at", "status", "reason", "error_code", "source_id",
@@ -134,7 +134,7 @@ func (s *Server) handleMonitoringCommand(ctx context.Context, message Inbound, p
 		}
 		return Outbound{V: 1, Type: "command.result", CorrelationID: message.CorrelationID, NodeID: s.localNodeID, Payload: commandPayload}
 	}
-	return Outbound{V: 1, Type: "command.result", CorrelationID: message.CorrelationID, NodeID: s.localNodeID, Payload: map[string]any{"command_id": payload.CommandID, "result": result.Data}}
+	return Outbound{V: 1, Type: "command.result", CorrelationID: message.CorrelationID, NodeID: s.localNodeID, Payload: map[string]any{"command_id": commandID, "result": result.Data}}
 }
 
 
