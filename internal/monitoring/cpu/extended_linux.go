@@ -37,6 +37,7 @@ func readLinuxCStates(ctx context.Context, cpuSysfsPath string) ([]MetricItem, e
 	if runtime.GOOS != "linux" {
 		return []MetricItem{statusItem(MetricCStateTarget, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "platform.cpuidle", now)}, nil
 	}
+	availability, availabilityKnown := readLinuxCoreAvailability(cpuSysfsPath)
 	pattern := filepath.Join(cpuSysfsPath, "cpu[0-9]*", "cpuidle", "state[0-9]*")
 	states, err := filepath.Glob(pattern)
 	if err != nil {
@@ -45,7 +46,18 @@ func readLinuxCStates(ctx context.Context, cpuSysfsPath string) ([]MetricItem, e
 	}
 	sort.Strings(states)
 	if len(states) == 0 {
-		return []MetricItem{statusItem(MetricCStateTarget, "", StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.cpuidle", now)}, nil
+		items := []MetricItem{statusItem(MetricCStateTarget, "", StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.cpuidle", now)}
+		if availabilityKnown {
+			for _, cpuName := range sortedCoreAvailabilityIDs(availability) {
+				state := availability[cpuName]
+				status, reason, code, sourceID := StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.cpuidle"
+				if !state.Online {
+					status, reason, code, sourceID = StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu"
+				}
+				items = append(items, statusItem(MetricCStateTarget, cpuName, status, reason, code, sourceID, now))
+			}
+		}
+		return items, nil
 	}
 	items := make([]MetricItem, 0, len(states))
 	seenCPUs := make(map[string]bool)
@@ -60,6 +72,15 @@ func readLinuxCStates(ctx context.Context, cpuSysfsPath string) ([]MetricItem, e
 		seenCPUs[cpuID] = true
 		name, nameErr := readSysfsValue(filepath.Join(statePath, "name"))
 		if nameErr != nil || strings.TrimSpace(name) == "" {
+			if availabilityKnown {
+				if state, exists := availability[cpuID]; !exists || !state.Present {
+					items = append(items, statusItem(MetricCStateTarget, objectID, StatusUnavailable, "not_present", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu", now))
+					continue
+				} else if !state.Online {
+					items = append(items, statusItem(MetricCStateTarget, objectID, StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu", now))
+					continue
+				}
+			}
 			if nameErr == nil {
 				nameErr = errors.New("cpuidle state name is empty")
 			}
@@ -70,6 +91,17 @@ func readLinuxCStates(ctx context.Context, cpuSysfsPath string) ([]MetricItem, e
 		metricID := MetricCStateTarget + "." + metricSlug(name)
 		if metricID == MetricCStateTarget+"." {
 			metricID = MetricCStateTarget + "." + stateID
+		}
+		if availabilityKnown {
+			state, exists := availability[cpuID]
+			if !exists || !state.Present {
+				items = append(items, statusItem(metricID, objectID, StatusUnavailable, "not_present", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu", now))
+				continue
+			}
+			if !state.Online {
+				items = append(items, statusItem(metricID, objectID, StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu", now))
+				continue
+			}
 		}
 		timeText, readErr := readSysfsValue(filepath.Join(statePath, "time"))
 		if readErr != nil {
@@ -97,7 +129,15 @@ func readLinuxCStates(ctx context.Context, cpuSysfsPath string) ([]MetricItem, e
 			for _, cpuID := range cpuIDs {
 				cpuName := fmt.Sprintf("cpu%d", cpuID)
 				if !seenCPUs[cpuName] {
-					items = append(items, statusItem(MetricCStateTarget, cpuName, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.cpuidle", now))
+					status, reason, code, sourceID := StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.cpuidle"
+					if availabilityKnown {
+						if state, exists := availability[cpuName]; !exists || !state.Present {
+							status, reason, code, sourceID = StatusUnavailable, "not_present", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu"
+						} else if !state.Online {
+							status, reason, code, sourceID = StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu"
+						}
+					}
+					items = append(items, statusItem(MetricCStateTarget, cpuName, status, reason, code, sourceID, now))
 				}
 			}
 		}
