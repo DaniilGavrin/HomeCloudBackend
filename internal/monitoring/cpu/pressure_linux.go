@@ -17,9 +17,9 @@ func (c *SystemCollector) ReadPressureMetrics(ctx context.Context) ([]MetricItem
 	return readLinuxCPUPressure(ctx, defaultCPUPressurePath)
 }
 
-// readLinuxCPUPressure exports PSI avg10 as the canonical CPU pressure gauge.
-// The observation window is explicit; PSI's cumulative total is intentionally
-// not substituted for the percentage metric.
+// readLinuxCPUPressure exports all kernel-provided PSI windows and cumulative
+// stall time. Average windows use WindowMS (10/60/300 seconds); the cumulative
+// total is emitted separately in nanoseconds with WindowMS unset.
 func readLinuxCPUPressure(ctx context.Context, path string) ([]MetricItem, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
