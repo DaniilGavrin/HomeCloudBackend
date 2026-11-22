@@ -589,9 +589,16 @@ func applyCoreAvailability(items []MetricItem, current Snapshot, previous *Snaps
 		state := current.CoreAvailability[objectID]
 		status, reason, code, sourceID := coreUnavailableStatus(state, true)
 		for _, metricID := range []string{MetricCoreUser, MetricCoreTotalUsage, MetricCoreUsage} {
-			if !hasMetricStatus(items, metricID, objectID) {
-				items = append(items, statusItem(metricID, objectID, status, reason, code, sourceID, current.CollectedAt))
+			override := reason == "cpu_offline" || reason == "not_present"
+			if reason == "source_failure" {
+				for _, existing := range items {
+					if existing.MetricID == metricID && existing.ObjectID == objectID && existing.Reason == "cpu_offline" {
+						override = true
+						break
+					}
+				}
 			}
+			items = upsertCoreStatus(items, statusItem(metricID, objectID, status, reason, code, sourceID, current.CollectedAt), override)
 		}
 	}
 	if previous == nil {
@@ -606,12 +613,23 @@ func applyCoreAvailability(items []MetricItem, current Snapshot, previous *Snaps
 		}
 		status, reason, code, sourceID := coreUnavailableStatus(CoreAvailability{}, false)
 		for _, metricID := range []string{MetricCoreUser, MetricCoreTotalUsage, MetricCoreUsage} {
-			if !hasMetricStatus(items, metricID, core.ObjectID) {
-				items = append(items, statusItem(metricID, core.ObjectID, status, reason, code, sourceID, current.CollectedAt))
-			}
+			items = upsertCoreStatus(items, statusItem(metricID, core.ObjectID, status, reason, code, sourceID, current.CollectedAt), true)
 		}
 	}
 	return items
+}
+
+func upsertCoreStatus(items []MetricItem, replacement MetricItem, override bool) []MetricItem {
+	for i := range items {
+		if items[i].MetricID != replacement.MetricID || items[i].ObjectID != replacement.ObjectID {
+			continue
+		}
+		if override {
+			items[i] = replacement
+		}
+		return items
+	}
+	return append(items, replacement)
 }
 
 func isPerCoreCPUMetric(metricID string) bool {
