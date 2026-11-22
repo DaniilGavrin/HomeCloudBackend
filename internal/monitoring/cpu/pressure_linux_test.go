@@ -91,3 +91,29 @@ func findPressureItem(items []MetricItem, metricID string, windowMS int64) (Metr
 	}
 	return MetricItem{}, false
 }
+
+
+func TestPressureStatusItemsPreservesAverageAndTotalDimensions(t *testing.T) {
+	now := time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)
+	items := pressureStatusItems(StatusPermissionDenied, "permission_denied", "SOURCE_PERMISSION_DENIED", now)
+	if len(items) != 8 {
+		t.Fatalf("pressure status items = %d, want 8: %#v", len(items), items)
+	}
+	for _, item := range items {
+		if item.Status != StatusPermissionDenied || item.ErrorCode != "SOURCE_PERMISSION_DENIED" {
+			t.Fatalf("unexpected pressure status item: %#v", item)
+		}
+		switch item.MetricID {
+		case MetricPressureSome, MetricPressureFull:
+			if item.Unit != "" || (item.WindowMS != 10_000 && item.WindowMS != 60_000 && item.WindowMS != 300_000) {
+				t.Fatalf("unexpected PSI average status dimension: %#v", item)
+			}
+		case MetricPressureSomeTotal, MetricPressureFullTotal:
+			if item.WindowMS != 0 {
+				t.Fatalf("cumulative PSI total must not have an average window: %#v", item)
+			}
+		default:
+			t.Fatalf("unexpected pressure metric ID: %#v", item)
+		}
+	}
+}
