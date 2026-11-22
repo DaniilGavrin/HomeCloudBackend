@@ -17,29 +17,21 @@ func TestParseSchedDebugRunQueue(t *testing.T) {
 	}
 }
 
-func TestReadLinuxRunQueuePrefersSchedulerDebug(t *testing.T) {
+func TestReadLinuxRunQueueUsesCompatibleSchedulerSource(t *testing.T) {
 	root := t.TempDir()
 	debug := filepath.Join(root, "sched_debug")
-	procStat := filepath.Join(root, "stat")
 	if err := os.WriteFile(debug, []byte("cpu#0, 0\n .nr_running : 2\ncpu#1, 1\n .nr_running : 1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(procStat, []byte("procs_running 9\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	item := readLinuxRunQueue(context.Background(), procStat, []string{debug})
-	if item.Status != StatusPartial || item.Value != uint64(3) || item.SourceID != "linux.host.proc.sched_debug" || item.Reason != "includes_running_tasks" {
+	item := readLinuxRunQueue(context.Background(), []string{debug})
+	if item.Status != StatusValid || item.Value != uint64(3) || item.SourceID != "linux.host.proc.sched_debug.nr_running" {
 		t.Fatalf("scheduler debug result = %#v", item)
 	}
 }
 
-func TestReadLinuxRunQueueFallbackIsExplicitlyPartial(t *testing.T) {
-	procStat := filepath.Join(t.TempDir(), "stat")
-	if err := os.WriteFile(procStat, []byte("procs_running 4\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	item := readLinuxRunQueue(context.Background(), procStat, []string{filepath.Join(t.TempDir(), "missing")})
-	if item.Status != StatusPartial || item.Value != uint64(4) || item.Reason != "includes_running_tasks" || item.ErrorCode != "PARTIAL_RESULT" {
-		t.Fatalf("fallback runqueue must disclose its semantics: %#v", item)
+func TestReadLinuxRunQueueDoesNotUseProcStatApproximation(t *testing.T) {
+	item := readLinuxRunQueue(context.Background(), []string{filepath.Join(t.TempDir(), "missing")})
+	if item.Status != StatusUnavailable || item.Value != nil || item.Reason != "no_semantically_compatible_source" {
+		t.Fatalf("runqueue without compatible source must be unavailable: %#v", item)
 	}
 }
