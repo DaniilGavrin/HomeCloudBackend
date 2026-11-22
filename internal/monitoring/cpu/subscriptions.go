@@ -567,11 +567,24 @@ func applyCoreAvailability(items []MetricItem, current Snapshot, previous *Snaps
 		currentCores[core.ObjectID] = true
 		state, exists := current.CoreAvailability[core.ObjectID]
 		if !exists || !state.Present || !state.Online {
-			status, reason, code := coreUnavailableStatus(state, exists)
+			status, reason, code, sourceID := coreUnavailableStatus(state, exists)
 			for i := range items {
 				if isPerCoreCPUMetric(items[i].MetricID) && items[i].ObjectID == core.ObjectID {
-					items[i] = statusItem(items[i].MetricID, core.ObjectID, status, reason, code, "linux.host.sysfs.cpu", current.CollectedAt)
+					items[i] = statusItem(items[i].MetricID, core.ObjectID, status, reason, code, sourceID, current.CollectedAt)
 				}
+			}
+		}
+	}
+	// Emit explicit states for present CPUs that are offline or unexpectedly
+	// absent from gopsutil's online per-CPU sample, including on first sample.
+	for objectID, state := range current.CoreAvailability {
+		if currentCores[objectID] {
+			continue
+		}
+		status, reason, code, sourceID := coreUnavailableStatus(state, true)
+		for _, metricID := range []string{MetricCoreUser, MetricCoreTotalUsage, MetricCoreUsage} {
+			if !hasMetricStatus(items, metricID, objectID) {
+				items = append(items, statusItem(metricID, objectID, status, reason, code, sourceID, current.CollectedAt))
 			}
 		}
 	}
@@ -582,11 +595,13 @@ func applyCoreAvailability(items []MetricItem, current Snapshot, previous *Snaps
 		if currentCores[core.ObjectID] {
 			continue
 		}
-		state, exists := current.CoreAvailability[core.ObjectID]
-		status, reason, code := coreUnavailableStatus(state, exists)
+		if _, presentInSysfs := current.CoreAvailability[core.ObjectID]; presentInSysfs {
+			continue
+		}
+		status, reason, code, sourceID := coreUnavailableStatus(CoreAvailability{}, false)
 		for _, metricID := range []string{MetricCoreUser, MetricCoreTotalUsage, MetricCoreUsage} {
 			if !hasMetricStatus(items, metricID, core.ObjectID) {
-				items = append(items, statusItem(metricID, core.ObjectID, status, reason, code, "linux.host.sysfs.cpu", current.CollectedAt))
+				items = append(items, statusItem(metricID, core.ObjectID, status, reason, code, sourceID, current.CollectedAt))
 			}
 		}
 	}
@@ -597,14 +612,14 @@ func isPerCoreCPUMetric(metricID string) bool {
 	return metricID == MetricCoreUser || metricID == MetricCoreTotalUsage || metricID == MetricCoreUsage
 }
 
-func coreUnavailableStatus(state CoreAvailability, exists bool) (status, reason, code string) {
+func coreUnavailableStatus(state CoreAvailability, exists bool) (status, reason, code, sourceID string) {
 	switch {
 	case !exists || !state.Present:
-		return StatusUnavailable, "not_present", "SOURCE_UNAVAILABLE"
+		return StatusUnavailable, "not_present", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu"
 	case !state.Online:
-		return StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE"
+		return StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu"
 	default:
-		return StatusSourceError, "source_failure", "SOURCE_UNAVAILABLE"
+		return StatusSourceError, "source_failure", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times"
 	}
 }
 
