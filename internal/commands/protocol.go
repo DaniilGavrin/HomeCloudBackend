@@ -9,6 +9,8 @@ type Inbound struct {
 	ID            string          `json:"id"`
 	Type          string          `json:"type"`
 	Action        string          `json:"action,omitempty"`
+	Command       string          `json:"command,omitempty"`
+	Params        json.RawMessage `json:"params,omitempty"`
 	Topic         string          `json:"topic,omitempty"`
 	DeviceID      string          `json:"device_id,omitempty"`
 	ClientType    string          `json:"client_type,omitempty"`
