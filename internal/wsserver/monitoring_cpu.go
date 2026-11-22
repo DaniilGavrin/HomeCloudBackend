@@ -76,24 +76,16 @@ func (s *Server) handleMonitoringCommand(ctx context.Context, message Inbound, p
 		code, category, description, retryable := classifiedErrorFields(err)
 		return s.commandError(message.CorrelationID, "", code, category, description, retryable)
 	}
-	var payload struct {
-		CommandID string          `json:"command_id"`
-		Params    json.RawMessage `json:"params,omitempty"`
-	}
-	if len(message.Payload) == 0 {
-		return s.commandError(message.CorrelationID, "", "VALIDATION_MISSING_FIELD", "validation", "payload.command_id is required", false)
-	}
-	if err := json.Unmarshal(message.Payload, &payload); err != nil {
-		return s.commandError(message.CorrelationID, "", "VALIDATION_INVALID_FIELD", "validation", "payload has an invalid structure", false)
-	}
-	if payload.CommandID == "" {
-		return s.commandError(message.CorrelationID, "", "VALIDATION_MISSING_FIELD", "validation", "payload.command_id is required", false)
+	commandID, params, parseErr := parseMonitoringCommandRequest(message)
+	if parseErr != nil {
+		code, category, description, retryable := classifiedErrorFields(parseErr)
+		return s.commandError(message.CorrelationID, commandID, code, category, description, retryable)
 	}
 
 	legacy := message
 	legacy.Type = "command"
-	legacy.Action = payload.CommandID
-	legacy.Data = payload.Params
+	legacy.Action = commandID
+	legacy.Data = params
 	subs := make(map[string]struct{})
 	for _, topic := range s.events.Topics(subscriber) {
 		subs[topic] = struct{}{}
@@ -111,7 +103,7 @@ func (s *Server) handleMonitoringCommand(ctx context.Context, message Inbound, p
 		if code == "PROVIDER_FAILURE" {
 			description = "monitoring request failed"
 		}
-		return s.commandError(message.CorrelationID, payload.CommandID, code, category, description, result.Retryable)
+		return s.commandError(message.CorrelationID, commandID, code, category, description, result.Retryable)
 	}
 
 	encoded, err := json.Marshal(result.Data)
@@ -143,6 +135,37 @@ func (s *Server) handleMonitoringCommand(ctx context.Context, message Inbound, p
 		return Outbound{V: 1, Type: "command.result", CorrelationID: message.CorrelationID, NodeID: s.localNodeID, Payload: commandPayload}
 	}
 	return Outbound{V: 1, Type: "command.result", CorrelationID: message.CorrelationID, NodeID: s.localNodeID, Payload: map[string]any{"command_id": payload.CommandID, "result": result.Data}}
+}
+
+
+func parseMonitoringCommandRequest(message Inbound) (string, json.RawMessage, error) {
+	commandID := message.Command
+	params := message.Params
+	if len(message.Payload) > 0 {
+		var payload struct {
+			CommandID string          `json:"command_id"`
+			Params    json.RawMessage `json:"params,omitempty"`
+		}
+		if err := json.Unmarshal(message.Payload, &payload); err != nil {
+			return commandID, nil, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "command payload has an invalid structure", false, err)
+		}
+		if commandID != "" && payload.CommandID != "" && commandID != payload.CommandID {
+			return commandID, nil, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "top-level command and payload.command_id must match", false, nil)
+		}
+		if payload.CommandID != "" {
+			commandID = payload.CommandID
+		}
+		if len(params) > 0 && len(payload.Params) > 0 {
+			return commandID, nil, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "params must be provided either at the top level or inside payload", false, nil)
+		}
+		if len(payload.Params) > 0 {
+			params = payload.Params
+		}
+	}
+	if commandID == "" {
+		return "", nil, commands.NewClassifiedError("VALIDATION_MISSING_FIELD", "validation", "command or payload.command_id is required", false, nil)
+	}
+	return commandID, params, nil
 }
 
 func (s *Server) handleSubscriptionCreate(message Inbound, peer *connections.Peer) (Outbound, func()) {
