@@ -252,7 +252,7 @@ func validateCounters(c Counters) error {
 	if runtime.GOOS != "linux" {
 		stateTotal += c.GuestSeconds + c.GuestNiceSeconds
 	}
-	tolerance := math.Max(1e-6, math.Abs(c.TotalSeconds)*1e-9)
+	tolerance := math.Max(1e-6, math.Abs(c.TotalSeconds)*1e-12)
 	if math.Abs(stateTotal-c.TotalSeconds) > tolerance {
 		return errors.New("CPU state counters do not match total time")
 	}
