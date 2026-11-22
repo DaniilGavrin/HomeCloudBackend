@@ -278,3 +278,44 @@ func TestReadLinuxCoreAvailabilityRejectsInconsistentOnlineSet(t *testing.T) {
 		t.Fatal("online CPU outside present set must not produce trusted availability")
 	}
 }
+
+
+func TestReadLinuxFrequencyReportsOfflineCPUSeparatelyFromSharedPolicy(t *testing.T) {
+	root := t.TempDir()
+	policy := filepath.Join(root, "cpufreq", "policy0")
+	writeSysfsTestFile(t, filepath.Join(root, "present"), "0-1")
+	writeSysfsTestFile(t, filepath.Join(root, "online"), "0")
+	writeSysfsTestFile(t, filepath.Join(policy, "affected_cpus"), "0-1")
+	writeSysfsTestFile(t, filepath.Join(policy, "scaling_cur_freq"), "2200000")
+
+	items, err := readLinuxFrequency(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	online, ok := findMetric(items, MetricCoreFrequency, "cpu0")
+	if !ok || online.Status != StatusUnavailable || online.Reason != "shared_policy_not_per_core" {
+		t.Fatalf("online CPU shared-policy status = %#v, found=%v", online, ok)
+	}
+	offline, ok := findMetric(items, MetricCoreFrequency, "cpu1")
+	if !ok || offline.Status != StatusUnavailable || offline.Reason != "cpu_offline" {
+		t.Fatalf("offline CPU frequency status = %#v, found=%v", offline, ok)
+	}
+}
+
+func TestReadLinuxFrequencyReportsOnlineCPUWithoutPolicyAsUnsupported(t *testing.T) {
+	root := t.TempDir()
+	writeSysfsTestFile(t, filepath.Join(root, "present"), "0-1")
+	writeSysfsTestFile(t, filepath.Join(root, "online"), "0")
+	items, err := readLinuxFrequency(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	online, ok := findMetric(items, MetricCoreFrequency, "cpu0")
+	if !ok || online.Status != StatusUnsupported || online.Reason != "unsupported_device" {
+		t.Fatalf("online CPU without cpufreq policy = %#v, found=%v", online, ok)
+	}
+	offline, ok := findMetric(items, MetricCoreFrequency, "cpu1")
+	if !ok || offline.Status != StatusUnavailable || offline.Reason != "cpu_offline" {
+		t.Fatalf("offline CPU without cpufreq policy = %#v, found=%v", offline, ok)
+	}
+}
