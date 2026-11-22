@@ -538,11 +538,27 @@ func filterFrequencyItems(ctx context.Context, items []MetricItem, params freque
 		return filtered, nil
 	}
 	now := time.Now().UTC()
-	statusMetric := MetricFrequencyTarget
-	if len(selectedCPUs) > 0 {
-		statusMetric = MetricCoreFrequency
+	metricIDs := make([]string, 0, len(items))
+	seenMetricIDs := make(map[string]bool, len(items))
+	for _, item := range items {
+		if item.MetricID == "" || seenMetricIDs[item.MetricID] {
+			continue
+		}
+		seenMetricIDs[item.MetricID] = true
+		metricIDs = append(metricIDs, item.MetricID)
 	}
-	return []MetricItem{statusItem(statusMetric, requestedObject, StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "linux.sysfs.cpufreq", now)}, nil
+	if len(metricIDs) == 0 {
+		metricIDs = []string{
+			MetricFrequencyTarget, MetricFrequencyCurrent, MetricFrequencyMin,
+			MetricFrequencyMax, MetricFrequencyBase, MetricFrequencyGovernor,
+			MetricCoreFrequency,
+		}
+	}
+	statusItems := make([]MetricItem, 0, len(metricIDs))
+	for _, metricID := range metricIDs {
+		statusItems = append(statusItems, statusItem(metricID, requestedObject, StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "linux.sysfs.cpufreq", now))
+	}
+	return statusItems, nil
 }
 
 func RegisterCommands(registry *commands.Registry, collector Collector) {
