@@ -24,7 +24,7 @@ func TestParseIntervalFieldsSupportsDocumentedSampleInterval(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := parseIntervalFields(test.sample, test.window)
+			got, err := parseIntervalFields(test.sample, nil, test.window)
 			if err != nil || got != test.want {
 				t.Fatalf("interval = %s, err=%v; want %s", got, err, test.want)
 			}
@@ -46,7 +46,7 @@ func TestParseIntervalFieldsRejectsInvalidOrConflictingValues(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := parseIntervalFields(test.sample, test.window)
+			_, err := parseIntervalFields(test.sample, nil, test.window)
 			var classified *commands.ClassifiedError
 			if !errors.As(err, &classified) || classified.Code != test.code {
 				t.Fatalf("error = %v, want classified code %s", err, test.code)
