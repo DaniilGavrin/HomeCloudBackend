@@ -28,7 +28,7 @@ func TestReadLinuxRunQueuePrefersSchedulerDebug(t *testing.T) {
 		t.Fatal(err)
 	}
 	item := readLinuxRunQueue(context.Background(), procStat, []string{debug})
-	if item.Status != StatusPartial || item.Value != uint64(3) || item.SourceID != "linux.proc.sched_debug" || item.Reason != "includes_running_tasks" {
+	if item.Status != StatusPartial || item.Value != uint64(3) || item.SourceID != "linux.host.proc.sched_debug" || item.Reason != "includes_running_tasks" {
 		t.Fatalf("scheduler debug result = %#v", item)
 	}
 }
