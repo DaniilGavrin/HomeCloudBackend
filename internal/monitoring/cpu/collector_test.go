@@ -339,3 +339,12 @@ func TestSnapshotFromStatsPreservesPartialAggregateRow(t *testing.T) {
 		t.Fatalf("aggregate metric must preserve value with partial quality: %#v", items)
 	}
 }
+
+
+func TestCalculateTotalUsageRejectsResetInAnyCPUState(t *testing.T) {
+	previous := Counters{TotalSeconds: 100, UserSeconds: 50, IdleSeconds: 50}
+	current := Counters{TotalSeconds: 110, UserSeconds: 49, SystemSeconds: 11, IdleSeconds: 50}
+	if _, ok := CalculateTotalUsage(previous, current); ok {
+		t.Fatal("aggregate usage must reject a reset in a component counter even when total time increased")
+	}
+}
