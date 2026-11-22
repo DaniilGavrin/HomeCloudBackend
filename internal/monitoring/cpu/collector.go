@@ -55,12 +55,19 @@ type CoreCounters struct {
 	Counters Counters
 }
 
+type CoreAvailability struct {
+	Present bool
+	Online  bool
+}
+
 type Snapshot struct {
-	Counters        Counters
-	Cores           []CoreCounters
-	CollectedAt     time.Time
-	AggregateStatus string
-	Issues          []MetricItem
+	Counters               Counters
+	Cores                  []CoreCounters
+	CoreAvailability       map[string]CoreAvailability
+	CoreAvailabilityKnown  bool
+	CollectedAt            time.Time
+	AggregateStatus        string
+	Issues                 []MetricItem
 }
 
 type Collector interface {
@@ -91,7 +98,12 @@ func (c *SystemCollector) Read(ctx context.Context) (Snapshot, error) {
 	if ctx.Err() != nil {
 		return Snapshot{}, ctx.Err()
 	}
-	return snapshotFromStats(aggregateStats, aggregateErr, perCPUStats, perCPUErr, time.Now().UTC()), nil
+	snapshot := snapshotFromStats(aggregateStats, aggregateErr, perCPUStats, perCPUErr, time.Now().UTC())
+	if availability, known := readLinuxCoreAvailability(defaultSysfsCPUPath); known {
+		snapshot.CoreAvailability = availability
+		snapshot.CoreAvailabilityKnown = true
+	}
+	return snapshot, nil
 }
 
 func snapshotFromStats(aggregateStats []cpu.TimesStat, aggregateErr error, perCPUStats []cpu.TimesStat, perCPUErr error, now time.Time) Snapshot {
