@@ -247,6 +247,15 @@ func validateCounters(c Counters) error {
 	if c.IdleSeconds+c.IOWaitSeconds > c.TotalSeconds {
 		return errors.New("CPU idle time exceeds total time")
 	}
+	stateTotal := c.UserSeconds + c.SystemSeconds + c.NiceSeconds +
+		c.IdleSeconds + c.IOWaitSeconds + c.IRQSeconds + c.SoftIRQSeconds + c.StealSeconds
+	if runtime.GOOS != "linux" {
+		stateTotal += c.GuestSeconds + c.GuestNiceSeconds
+	}
+	tolerance := math.Max(1e-6, math.Abs(c.TotalSeconds)*1e-9)
+	if math.Abs(stateTotal-c.TotalSeconds) > tolerance {
+		return errors.New("CPU state counters do not match total time")
+	}
 	return nil
 }
 
