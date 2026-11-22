@@ -183,14 +183,23 @@ func TestFrequencyPolicyCPUResolution(t *testing.T) {
 	root := t.TempDir()
 	policy0 := filepath.Join(root, "cpufreq", "policy0")
 	policy1 := filepath.Join(root, "cpufreq", "policy1")
+	policy2 := filepath.Join(root, "cpufreq", "policy2")
 	writeSysfsTestFile(t, filepath.Join(policy0, "affected_cpus"), "0 1")
 	writeSysfsTestFile(t, filepath.Join(policy1, "related_cpus"), "2-3")
+	writeSysfsTestFile(t, filepath.Join(policy2, "affected_cpus"), "")
+	writeSysfsTestFile(t, filepath.Join(policy2, "related_cpus"), "4")
 
 	if got := frequencyPoliciesForCPU(root, 1); len(got) != 1 || got[0] != "policy0" {
 		t.Fatalf("policies for cpu1 = %v, want [policy0]", got)
 	}
 	if got := cpusForFrequencyPolicy(root, "policy1"); len(got) != 2 || got[0] != 2 || got[1] != 3 {
 		t.Fatalf("CPUs for policy1 = %v, want [2 3]", got)
+	}
+	if got := frequencyPoliciesForCPU(root, 4); len(got) != 1 || got[0] != "policy2" {
+		t.Fatalf("policies for cpu4 = %v, want [policy2] via related_cpus fallback", got)
+	}
+	if got := cpusForFrequencyPolicy(root, "policy2"); len(got) != 1 || got[0] != 4 {
+		t.Fatalf("CPUs for policy2 = %v, want [4] via related_cpus fallback", got)
 	}
 	if isFrequencyDomainID("cpu1") || !isFrequencyDomainID("policy1") {
 		t.Fatal("frequency-domain validation accepted invalid policy ID or rejected policy1")
