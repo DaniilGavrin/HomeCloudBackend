@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -191,11 +192,15 @@ func aggregateAvailable(snapshot Snapshot) bool {
 }
 
 func countersFromTimes(stat cpu.TimesStat) Counters {
-	// On Linux, guest is already included in user and guest_nice in nice.
-	// Do not add those buckets again or total CPU time will be double-counted.
+	// gopsutil's Total includes guest buckets on every platform. Linux already
+	// accounts guest inside user/nice, so subtract those buckets there only.
+	total := stat.Total()
+	if runtime.GOOS == "linux" {
+		total -= stat.Guest
+		total -= stat.GuestNice
+	}
 	return Counters{
-		TotalSeconds: stat.User + stat.System + stat.Nice + stat.Idle +
-			stat.Iowait + stat.Irq + stat.Softirq + stat.Steal,
+		TotalSeconds: total,
 		IdleSeconds:      stat.Idle,
 		UserSeconds:      stat.User,
 		SystemSeconds:    stat.System,
