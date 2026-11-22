@@ -100,7 +100,7 @@ func snapshotFromStats(aggregateStats []cpu.TimesStat, aggregateErr error, perCP
 		AggregateStatus: StatusUnknown,
 		Cores: make([]CoreCounters, 0, len(perCPUStats)),
 	}
-	if aggregateErr == nil && len(aggregateStats) > 0 {
+	if len(aggregateStats) > 0 {
 		aggregate := countersFromTimes(aggregateStats[0])
 		if validationErr := validateCounters(aggregate); validationErr != nil {
 			result.AggregateStatus = StatusInvalid
@@ -109,7 +109,13 @@ func snapshotFromStats(aggregateStats []cpu.TimesStat, aggregateErr error, perCP
 			}
 		} else {
 			result.Counters = aggregate
-			result.AggregateStatus = StatusValid
+			if aggregateErr != nil {
+				// Keep a valid aggregate row even when the provider also reports
+				// an error; consumers receive the value with partial quality.
+				result.AggregateStatus = StatusPartial
+			} else {
+				result.AggregateStatus = StatusValid
+			}
 		}
 	} else {
 		if aggregateErr == nil {
@@ -188,7 +194,7 @@ func aggregateMetricIDs() []string {
 }
 
 func aggregateAvailable(snapshot Snapshot) bool {
-	return snapshot.AggregateStatus == "" || snapshot.AggregateStatus == StatusValid
+	return snapshot.AggregateStatus == "" || snapshot.AggregateStatus == StatusValid || snapshot.AggregateStatus == StatusPartial
 }
 
 func countersFromTimes(stat cpu.TimesStat) Counters {
@@ -237,6 +243,9 @@ type UsageSample struct {
 	WindowStart time.Time
 	WindowEnd   time.Time
 	WindowMS    int64
+	Status      string
+	Reason      string
+	ErrorCode   string
 }
 
 func (c *SystemCollector) TotalUsage(ctx context.Context, window time.Duration) (float64, error) {
@@ -283,7 +292,16 @@ func usageSampleFromSnapshots(before, after Snapshot) (UsageSample, error) {
 	if windowMS <= 0 {
 		return UsageSample{}, commands.NewClassifiedError("SOURCE_INVALID_DATA", "source", "CPU sample timestamps do not form a positive interval", false, nil)
 	}
-	return UsageSample{Value: value, WindowStart: before.CollectedAt, WindowEnd: after.CollectedAt, WindowMS: windowMS}, nil
+	sample := UsageSample{
+		Value: value, WindowStart: before.CollectedAt,
+		WindowEnd: after.CollectedAt, WindowMS: windowMS, Status: StatusValid,
+	}
+	if before.AggregateStatus == StatusPartial || after.AggregateStatus == StatusPartial {
+		sample.Status = StatusPartial
+		sample.Reason = "partial_source"
+		sample.ErrorCode = "PARTIAL_RESULT"
+	}
+	return sample, nil
 }
 
 func validateWindow(window time.Duration) error {
@@ -627,7 +645,8 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 			}
 			return metricResult{
 				Value: sample.Value, Unit: "percent", ObservedAt: sample.WindowEnd.Format(time.RFC3339Nano),
-				Status: StatusValid, SourceID: "gopsutil.cpu.times", WindowMS: sample.WindowMS,
+				Status: sample.Status, Reason: sample.Reason, ErrorCode: sample.ErrorCode,
+				SourceID: "gopsutil.cpu.times", WindowMS: sample.WindowMS,
 				WindowStart: sample.WindowStart.Format(time.RFC3339Nano),
 				WindowEnd: sample.WindowEnd.Format(time.RFC3339Nano),
 			}, nil
@@ -662,7 +681,9 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 			return metricResult{
 				Value: counterNanoseconds(read(snapshot.Counters)), Unit: "ns",
 				ObservedAt: time.Now().UTC().Format(time.RFC3339Nano),
-				Status: StatusValid, SourceID: "gopsutil.cpu.times",
+				Status: snapshot.AggregateStatus, SourceID: "gopsutil.cpu.times",
+				Reason: func() string { if snapshot.AggregateStatus == StatusPartial { return "partial_source" }; return "" }(),
+				ErrorCode: func() string { if snapshot.AggregateStatus == StatusPartial { return "PARTIAL_RESULT" }; return "" }(),
 			}, nil
 		})
 	}
