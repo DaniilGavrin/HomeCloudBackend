@@ -83,7 +83,6 @@ func (r *Registry) Dispatch(ctx context.Context, msg Inbound, client ClientConte
 	if r == nil {
 		response.Type = "error"
 		response.Error = "command registry is unavailable"
-		response.Error = "command execution failed"
 		response.ErrorCode = "PROVIDER_FAILURE"
 		response.ErrorCategory = "execution"
 		return response
@@ -138,6 +137,7 @@ func setOutboundErrorMetadata(response *Outbound, err error) {
 		response.ErrorCategory = "timeout"
 		response.Retryable = false
 	default:
+		response.Error = "command execution failed"
 		response.ErrorCode = "PROVIDER_FAILURE"
 		response.ErrorCategory = "execution"
 		response.Retryable = false
