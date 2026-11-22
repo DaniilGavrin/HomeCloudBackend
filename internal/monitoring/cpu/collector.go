@@ -1011,7 +1011,10 @@ func registerExtendedCommands(registry *commands.Registry, collector Collector) 
 			return nil, ErrMetricUnsupported
 		})
 	}
-	for _, metricID := range []string{MetricPressureSome, MetricPressureFull} {
+	for _, metricID := range []string{
+		MetricPressureSome, MetricPressureFull,
+		MetricPressureSomeTotal, MetricPressureFullTotal,
+	} {
 		id := metricID
 		registry.MustRegister(id, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
 			if err := rejectUnexpectedParams(msg.Data); err != nil {
