@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 	"time"
+	"runtime"
 
 	"github.com/shirou/gopsutil/v4/cpu"
 )
@@ -87,6 +88,24 @@ func TestCalculateTotalUsageRejectsInvalidBaseline(t *testing.T) {
 				t.Fatal("expected invalid interval")
 			}
 		})
+	}
+}
+
+func TestCountersFromTimesUsesPlatformGuestSemantics(t *testing.T) {
+	stat := cpu.TimesStat{
+		User: 10, System: 2, Nice: 3, Idle: 20, Iowait: 1,
+		Irq: 1, Softirq: 1, Steal: 1, Guest: 4, GuestNice: 2,
+	}
+	got := countersFromTimes(stat)
+	want := stat.Total()
+	if runtime.GOOS == "linux" {
+		want -= stat.Guest + stat.GuestNice
+	}
+	if got.TotalSeconds != want {
+		t.Fatalf("total CPU seconds = %v, want %v for %s", got.TotalSeconds, want, runtime.GOOS)
+	}
+	if got.GuestSeconds != stat.Guest || got.GuestNiceSeconds != stat.GuestNice {
+		t.Fatalf("guest buckets were not preserved: %#v", got)
 	}
 }
 
