@@ -643,7 +643,7 @@ func coreUnavailableStatus(state CoreAvailability, exists bool) (status, reason,
 	case !state.Online:
 		return StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu"
 	default:
-		return StatusSourceError, "source_failure", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times"
+		return StatusUnavailable, "source_failure", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times"
 	}
 }
 
