@@ -1163,7 +1163,7 @@ func coreTotalUsageItems(previous, current []CoreCounters, observedAt time.Time)
 			MetricItem{
 				MetricID: MetricCoreTotalUsage, ObjectID: core.ObjectID,
 				Value: value, Unit: "percent", ObservedAt: timestamp,
-				Status: StatusValid, SourceID: "gopsutil.cpu.times", WindowMS: EffectiveInterval.Milliseconds(),
+				Status: StatusValid, SourceID: "gopsutil.cpu.times",
 			},
 			MetricItem{
 				MetricID: MetricCoreUsage, ObjectID: core.ObjectID,
@@ -1177,8 +1177,8 @@ func coreTotalUsageItems(previous, current []CoreCounters, observedAt time.Time)
 			continue
 		}
 		items = append(items,
-			statusItem(MetricCoreTotalUsage, core.ObjectID, StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", observedAt),
-			statusItem(MetricCoreUsage, core.ObjectID, StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", observedAt),
+			statusItem(MetricCoreTotalUsage, core.ObjectID, StatusUnavailable, "source_failure", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", observedAt),
+			statusItem(MetricCoreUsage, core.ObjectID, StatusUnavailable, "source_failure", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", observedAt),
 		)
 	}
 	return items
