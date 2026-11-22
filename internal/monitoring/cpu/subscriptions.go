@@ -631,7 +631,7 @@ func coreUnavailableStatus(state CoreAvailability, exists bool) (status, reason,
 
 func sampleWindowMilliseconds(previous, current Snapshot) int64 {
 	if previous.CollectedAt.IsZero() || current.CollectedAt.IsZero() {
-		return EffectiveInterval.Milliseconds()
+		return 0
 	}
 	return current.CollectedAt.Sub(previous.CollectedAt).Milliseconds()
 }
