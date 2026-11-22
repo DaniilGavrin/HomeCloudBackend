@@ -592,7 +592,13 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 		if err != nil {
 			return nil, err
 		}
-		return coreUserItems(snapshot.Cores, time.Now().UTC()), nil
+		items := coreUserItems(snapshot.Cores, time.Now().UTC())
+		for _, issue := range snapshot.Issues {
+			if issue.MetricID == MetricCoreUser {
+				items = append(items, issue)
+			}
+		}
+		return items, nil
 	})
 	readTopology := func(ctx context.Context) ([]MetricItem, error) {
 		items, err := readLinuxTopology(ctx, defaultSysfsCPUPath)
@@ -709,9 +715,22 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 		if err != nil {
 			return nil, err
 		}
-		items := coreTotalUsageItems(before.Cores, after.Cores, time.Now().UTC())
+		observedAt := time.Now().UTC()
+		items := coreTotalUsageItems(before.Cores, after.Cores, observedAt)
+		windowMS := sampleWindowMilliseconds(before, after)
 		for i := range items {
-			items[i].WindowMS = window.Milliseconds()
+			if items[i].Status == StatusValid {
+				if windowMS <= 0 {
+					items[i] = statusItem(items[i].MetricID, items[i].ObjectID, StatusInvalid, "invalid_window", "SOURCE_INVALID_DATA", "gopsutil.cpu.times", observedAt)
+				} else {
+					items[i].WindowMS = windowMS
+				}
+			}
+		}
+		for _, issue := range after.Issues {
+			if issue.MetricID == MetricCoreTotalUsage || issue.MetricID == MetricCoreUsage {
+				items = append(items, issue)
+			}
 		}
 		if len(items) == 0 {
 			items = []MetricItem{
@@ -950,7 +969,9 @@ func coreTotalUsageItems(previous, current []CoreCounters, observedAt time.Time)
 	}
 	timestamp := observedAt.UTC().Format(time.RFC3339Nano)
 	items := make([]MetricItem, 0, len(current))
+	currentIDs := make(map[string]bool, len(current))
 	for _, core := range current {
+		currentIDs[core.ObjectID] = true
 		before, exists := previousByID[core.ObjectID]
 		if !exists {
 			items = append(items,
@@ -978,6 +999,15 @@ func coreTotalUsageItems(previous, current []CoreCounters, observedAt time.Time)
 				Value: value, Unit: "percent", ObservedAt: timestamp,
 				Status: StatusValid, SourceID: "gopsutil.cpu.times", WindowMS: EffectiveInterval.Milliseconds(),
 			},
+		)
+	}
+	for _, core := range previous {
+		if currentIDs[core.ObjectID] {
+			continue
+		}
+		items = append(items,
+			statusItem(MetricCoreTotalUsage, core.ObjectID, StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", observedAt),
+			statusItem(MetricCoreUsage, core.ObjectID, StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", observedAt),
 		)
 	}
 	return items
