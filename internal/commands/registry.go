@@ -93,7 +93,7 @@ func (r *Registry) Dispatch(ctx context.Context, msg Inbound, client ClientConte
 	r.mu.RUnlock()
 	if !found {
 		response.Type = "error"
-		response.Error = "unknown command"
+		response.Error = "unknown or unsupported action"
 		response.ErrorCode = "COMMAND_NOT_FOUND"
 		response.ErrorCategory = "routing"
 		return response
