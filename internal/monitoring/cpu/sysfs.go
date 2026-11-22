@@ -131,6 +131,7 @@ func readLinuxFrequency(ctx context.Context, cpuSysfsPath string) ([]MetricItem,
 
 	items := make([]MetricItem, 0, len(policies)*len(metricIDs))
 	mappedCPUs := make(map[int]bool)
+	mappingSourceErr := false
 	for _, policyPath := range policies {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -181,6 +182,7 @@ func readLinuxFrequency(ctx context.Context, cpuSysfsPath string) ([]MetricItem,
 		// kernel provides an explicit mapping.
 		cpuIDs, listErr := readPolicyCPUList(policyPath)
 		if listErr != nil {
+			mappingSourceErr = true
 			status, reason, code := classifySourceError(listErr)
 			if errors.Is(listErr, os.ErrNotExist) {
 				status, reason, code = StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED"
@@ -254,6 +256,8 @@ func readLinuxFrequency(ctx context.Context, cpuSysfsPath string) ([]MetricItem,
 			status, reason, code, sourceID := StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.cpufreq"
 			if !state.Online {
 				status, reason, code, sourceID = StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu"
+			} else if mappingSourceErr {
+				status, reason, code, sourceID = StatusUnavailable, "source_failure", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpufreq"
 			}
 			items = append(items, statusItem(MetricCoreFrequency, objectID, status, reason, code, sourceID, now))
 		}
