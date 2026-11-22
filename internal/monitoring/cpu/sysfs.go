@@ -165,7 +165,14 @@ func readLinuxFrequency(ctx context.Context, cpuSysfsPath string) ([]MetricItem,
 			}
 			items = append(items, statusItem(MetricCoreFrequency, objectID, status, reason, code, "linux.host.sysfs.cpufreq.scaling_cur_freq", now))
 		} else {
+			currentSourceID := "linux.host.sysfs.cpufreq.scaling_cur_freq"
 			currentText, currentErr := readSysfsValue(filepath.Join(policyPath, "scaling_cur_freq"))
+			if errors.Is(currentErr, os.ErrNotExist) {
+				currentText, currentErr = readSysfsValue(filepath.Join(policyPath, "cpuinfo_cur_freq"))
+				if currentErr == nil {
+					currentSourceID = "linux.host.sysfs.cpufreq.cpuinfo_cur_freq"
+				}
+			}
 			var currentHz uint64
 			if currentErr == nil {
 				var parsed uint64
@@ -183,12 +190,12 @@ func readLinuxFrequency(ctx context.Context, cpuSysfsPath string) ([]MetricItem,
 					if errors.Is(currentErr, os.ErrNotExist) {
 						status, reason, code = StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED"
 					}
-					items = append(items, statusItem(MetricCoreFrequency, coreObjectID, status, reason, code, "linux.host.sysfs.cpufreq.scaling_cur_freq", now))
+					items = append(items, statusItem(MetricCoreFrequency, coreObjectID, status, reason, code, currentSourceID, now))
 					continue
 				}
 				items = append(items, MetricItem{
 					MetricID: MetricCoreFrequency, ObjectID: coreObjectID, Value: int64(currentHz), Unit: "Hz",
-					ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid, SourceID: "linux.host.sysfs.cpufreq.scaling_cur_freq",
+					ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid, SourceID: currentSourceID,
 				})
 			}
 		}
