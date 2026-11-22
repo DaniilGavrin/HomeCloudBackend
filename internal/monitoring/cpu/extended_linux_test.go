@@ -70,8 +70,8 @@ func TestReadLinuxThrottlingPreservesPerCPUCountersAndDeduplicatesPackages(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 15 {
-		t.Fatalf("throttling items = %d, want 15 (per-CPU core counters and one package copy): %#v", len(items), items)
+	if len(items) != 24 {
+		t.Fatalf("throttling items = %d, want 24 including explicit unsupported power-duration and active-state entries: %#v", len(items), items)
 	}
 	if !hasThrottleObject(items, MetricThrottleThermalCoreEvents, "cpu0") ||
 		!hasThrottleObject(items, MetricThrottleThermalCoreEvents, "cpu1") ||
@@ -79,6 +79,18 @@ func TestReadLinuxThrottlingPreservesPerCPUCountersAndDeduplicatesPackages(t *te
 		!hasThrottleObject(items, MetricThrottlePowerCoreEvents, "cpu0") ||
 		!hasThrottleObject(items, MetricThrottlePowerPackageEvents, "package0") {
 		t.Fatalf("missing per-CPU or deduplicated package counters: %#v", items)
+	}
+	if !hasThrottleObject(items, MetricThrottlePowerCoreDuration, "cpu0") ||
+		!hasThrottleObject(items, MetricThrottlePowerPackageDuration, "package0") ||
+		!hasThrottleObject(items, MetricThrottleActive, "cpu0") {
+		t.Fatalf("missing explicit unsupported throttle dimensions: %#v", items)
+	}
+	for _, item := range items {
+		if item.MetricID == MetricThrottlePowerCoreDuration || item.MetricID == MetricThrottlePowerPackageDuration || item.MetricID == MetricThrottleActive {
+			if item.Status != StatusUnsupported {
+				t.Errorf("metric %s status = %q, want unsupported", item.MetricID, item.Status)
+			}
+		}
 	}
 }
 
