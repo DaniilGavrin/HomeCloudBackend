@@ -232,32 +232,72 @@ func validateCounters(c Counters) error {
 	return nil
 }
 
+type UsageSample struct {
+	Value       float64
+	WindowStart time.Time
+	WindowEnd   time.Time
+	WindowMS    int64
+}
+
 func (c *SystemCollector) TotalUsage(ctx context.Context, window time.Duration) (float64, error) {
-	if err := validateWindow(window); err != nil {
+	sample, err := c.TotalUsageSample(ctx, window)
+	if err != nil {
 		return 0, err
+	}
+	return sample.Value, nil
+}
+
+// TotalUsageSample returns the actual interval represented by the two counter
+// snapshots. The requested wait duration is not used as a substitute for the
+// observed sampling window.
+func (c *SystemCollector) TotalUsageSample(ctx context.Context, window time.Duration) (UsageSample, error) {
+	if err := validateWindow(window); err != nil {
+		return UsageSample{}, err
 	}
 	before, err := c.Read(ctx)
 	if err != nil {
-		return 0, err
+		return UsageSample{}, err
 	}
 	if !aggregateAvailable(before) {
-		return 0, commands.NewClassifiedError("SOURCE_UNAVAILABLE", "source", "aggregate CPU counters are unavailable", true, nil)
+		return UsageSample{}, commands.NewClassifiedError("SOURCE_UNAVAILABLE", "source", "aggregate CPU counters are unavailable", true, nil)
 	}
 	if err := waitWindow(ctx, window); err != nil {
-		return 0, err
+		return UsageSample{}, err
 	}
 	after, err := c.Read(ctx)
 	if err != nil {
-		return 0, err
+		return UsageSample{}, err
 	}
 	if !aggregateAvailable(after) {
-		return 0, commands.NewClassifiedError("SOURCE_UNAVAILABLE", "source", "aggregate CPU counters are unavailable", true, nil)
+		return UsageSample{}, commands.NewClassifiedError("SOURCE_UNAVAILABLE", "source", "aggregate CPU counters are unavailable", true, nil)
 	}
 	value, ok := CalculateTotalUsage(before.Counters, after.Counters)
 	if !ok {
-		return 0, commands.NewClassifiedError("SOURCE_INVALID_DATA", "source", "CPU counters did not advance during the measurement window", false, nil)
+		return UsageSample{}, commands.NewClassifiedError("SOURCE_INVALID_DATA", "source", "CPU counters did not advance during the measurement window", false, nil)
 	}
-	return value, nil
+	windowMS := after.CollectedAt.Sub(before.CollectedAt).Milliseconds()
+	if windowMS <= 0 {
+		return UsageSample{}, commands.NewClassifiedError("SOURCE_INVALID_DATA", "source", "CPU sample timestamps do not form a positive interval", false, nil)
+	}
+	return UsageSample{
+		Value: value, WindowStart: before.CollectedAt,
+		WindowEnd: after.CollectedAt, WindowMS: windowMS,
+	}, nil
+}
+
+func usageSampleFromSnapshots(before, after Snapshot) (UsageSample, error) {
+	if !aggregateAvailable(before) || !aggregateAvailable(after) {
+		return UsageSample{}, commands.NewClassifiedError("SOURCE_UNAVAILABLE", "source", "aggregate CPU counters are unavailable", true, nil)
+	}
+	value, ok := CalculateTotalUsage(before.Counters, after.Counters)
+	if !ok {
+		return UsageSample{}, commands.NewClassifiedError("SOURCE_INVALID_DATA", "source", "CPU counters did not advance during the measurement window", false, nil)
+	}
+	windowMS := after.CollectedAt.Sub(before.CollectedAt).Milliseconds()
+	if windowMS <= 0 {
+		return UsageSample{}, commands.NewClassifiedError("SOURCE_INVALID_DATA", "source", "CPU sample timestamps do not form a positive interval", false, nil)
+	}
+	return UsageSample{Value: value, WindowStart: before.CollectedAt, WindowEnd: after.CollectedAt, WindowMS: windowMS}, nil
 }
 
 func validateWindow(window time.Duration) error {
@@ -592,6 +632,22 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 		if err != nil {
 			return nil, err
 		}
+		if sampler, ok := collector.(interface {
+			TotalUsageSample(context.Context, time.Duration) (UsageSample, error)
+		}); ok {
+			sample, err := sampler.TotalUsageSample(ctx, window)
+			if err != nil {
+				return nil, err
+			}
+			return metricResult{
+				Value: sample.Value, Unit: "percent", ObservedAt: sample.WindowEnd.Format(time.RFC3339Nano),
+				Status: StatusValid, SourceID: "gopsutil.cpu.times", WindowMS: sample.WindowMS,
+				WindowStart: sample.WindowStart.Format(time.RFC3339Nano),
+				WindowEnd: sample.WindowEnd.Format(time.RFC3339Nano),
+			}, nil
+		}
+		// Keep compatibility with third-party Collector implementations. The
+		// built-in SystemCollector always provides the measured snapshot window.
 		windowStart := time.Now().UTC()
 		value, err := collector.TotalUsage(ctx, window)
 		if err != nil {
