@@ -20,6 +20,26 @@ func TestCalculateTotalUsage(t *testing.T) {
 	}
 }
 
+func TestCoreTotalUsageReportsHotpluggedOfflineCPU(t *testing.T) {
+	previous := []CoreCounters{
+		{ObjectID: "cpu0", Counters: Counters{TotalSeconds: 10, IdleSeconds: 5}},
+		{ObjectID: "cpu1", Counters: Counters{TotalSeconds: 10, IdleSeconds: 5}},
+	}
+	current := []CoreCounters{
+		{ObjectID: "cpu0", Counters: Counters{TotalSeconds: 11, IdleSeconds: 5}},
+	}
+	items := coreTotalUsageItems(previous, current, time.Now().UTC())
+	foundOffline := false
+	for _, item := range items {
+		if item.ObjectID == "cpu1" && item.MetricID == MetricCoreUsage {
+			foundOffline = item.Status == StatusUnavailable && item.Reason == "cpu_offline"
+		}
+	}
+	if !foundOffline {
+		t.Fatalf("removed logical CPU did not receive an offline status: %#v", items)
+	}
+}
+
 func TestCalculateTotalUsageExcludesIOWait(t *testing.T) {
 	previous := Counters{TotalSeconds: 100, IdleSeconds: 60, IOWaitSeconds: 10}
 	current := Counters{TotalSeconds: 110, IdleSeconds: 65, IOWaitSeconds: 13}
