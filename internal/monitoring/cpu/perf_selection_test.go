@@ -5,6 +5,21 @@ import (
 	"testing"
 )
 
+func TestDerivedPerfValueEnforcesMetricUnitsAndRanges(t *testing.T) {
+	if value, unit, ok := derivedPerfValue(MetricPerfIPC, 2, 1); !ok || value != 2 || unit != "ratio" {
+		t.Fatalf("IPC = (%v, %q, %v), want (2, ratio, true)", value, unit, ok)
+	}
+	if value, unit, ok := derivedPerfValue(MetricPerfBranchMissRate, 1, 4); !ok || value != 25 || unit != "percent" {
+		t.Fatalf("branch miss rate = (%v, %q, %v), want (25, percent, true)", value, unit, ok)
+	}
+	if _, _, ok := derivedPerfValue(MetricPerfBranchMissRate, 2, 1); ok {
+		t.Fatal("derived PMU percentage above 100 must be invalid")
+	}
+	if _, _, ok := derivedPerfValue(MetricPerfIPC, 1, 0); ok {
+		t.Fatal("derived PMU ratio with zero denominator must be invalid")
+	}
+}
+
 func TestSelectPerfEventIDsUsesSynchronizedDependencies(t *testing.T) {
 	tests := []struct {
 		name string
