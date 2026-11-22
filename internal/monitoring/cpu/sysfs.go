@@ -91,12 +91,23 @@ func readLinuxFrequency(ctx context.Context, cpuSysfsPath string) ([]MetricItem,
 		}
 		return items, nil
 	}
+	availability, availabilityKnown := readLinuxCoreAvailability(cpuSysfsPath)
 	policies, err := filepath.Glob(filepath.Join(cpuSysfsPath, "cpufreq", "policy[0-9]*"))
 	if err != nil {
 		status, reason, code := classifySourceError(err)
 		items := make([]MetricItem, 0, len(metricIDs))
 		for _, id := range metricIDs {
 			items = append(items, statusItem(id, "", status, reason, code, "linux.host.sysfs.cpufreq", now))
+		}
+		if availabilityKnown {
+			for _, objectID := range sortedCoreAvailabilityIDs(availability) {
+				state := availability[objectID]
+				coreStatus, coreReason, coreCode, sourceID := coreUnavailableStatus(state, true)
+				if state.Present && state.Online {
+					coreStatus, coreReason, coreCode, sourceID = StatusUnavailable, "source_failure", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpufreq"
+				}
+				items = append(items, statusItem(MetricCoreFrequency, objectID, coreStatus, coreReason, coreCode, sourceID, now))
+			}
 		}
 		return items, nil
 	}
@@ -105,10 +116,21 @@ func readLinuxFrequency(ctx context.Context, cpuSysfsPath string) ([]MetricItem,
 		for _, id := range metricIDs {
 			items = append(items, statusItem(id, "", StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.cpufreq", now))
 		}
+		if availabilityKnown {
+			for _, objectID := range sortedCoreAvailabilityIDs(availability) {
+				state := availability[objectID]
+				status, reason, code, sourceID := StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.cpufreq"
+				if !state.Online {
+					status, reason, code, sourceID = StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu"
+				}
+				items = append(items, statusItem(MetricCoreFrequency, objectID, status, reason, code, sourceID, now))
+			}
+		}
 		return items, nil
 	}
 
 	items := make([]MetricItem, 0, len(policies)*len(metricIDs))
+	mappedCPUs := make(map[int]bool)
 	for _, policyPath := range policies {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -163,7 +185,7 @@ func readLinuxFrequency(ctx context.Context, cpuSysfsPath string) ([]MetricItem,
 			if errors.Is(listErr, os.ErrNotExist) {
 				status, reason, code = StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED"
 			}
-			items = append(items, statusItem(MetricCoreFrequency, objectID, status, reason, code, "linux.host.sysfs.cpufreq.scaling_cur_freq", now))
+			items = append(items, statusItem(MetricCoreFrequency, "", status, reason, code, "linux.host.sysfs.cpufreq.scaling_cur_freq", now))
 		} else {
 			currentSourceID := "linux.host.sysfs.cpufreq.scaling_cur_freq"
 			currentText, currentErr := readSysfsValue(filepath.Join(policyPath, "scaling_cur_freq"))
@@ -185,6 +207,18 @@ func readLinuxFrequency(ctx context.Context, cpuSysfsPath string) ([]MetricItem,
 			}
 			for _, cpuID := range cpuIDs {
 				coreObjectID := fmt.Sprintf("cpu%d", cpuID)
+				mappedCPUs[cpuID] = true
+				if availabilityKnown {
+					state, exists := availability[coreObjectID]
+					if !exists || !state.Present {
+						items = append(items, statusItem(MetricCoreFrequency, coreObjectID, StatusUnavailable, "not_present", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu", now))
+						continue
+					}
+					if !state.Online {
+						items = append(items, statusItem(MetricCoreFrequency, coreObjectID, StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu", now))
+						continue
+					}
+				}
 				if currentErr != nil {
 					status, reason, code := classifySourceError(currentErr)
 					if errors.Is(currentErr, os.ErrNotExist) {
@@ -210,7 +244,30 @@ func readLinuxFrequency(ctx context.Context, cpuSysfsPath string) ([]MetricItem,
 			}
 		}
 	}
+	if availabilityKnown {
+		for _, objectID := range sortedCoreAvailabilityIDs(availability) {
+			cpuID, parseErr := strconv.Atoi(strings.TrimPrefix(objectID, "cpu"))
+			if parseErr != nil || mappedCPUs[cpuID] {
+				continue
+			}
+			state := availability[objectID]
+			status, reason, code, sourceID := StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.cpufreq"
+			if !state.Online {
+				status, reason, code, sourceID = StatusUnavailable, "cpu_offline", "SOURCE_UNAVAILABLE", "linux.host.sysfs.cpu"
+			}
+			items = append(items, statusItem(MetricCoreFrequency, objectID, status, reason, code, sourceID, now))
+		}
+	}
 	return items, nil
+}
+
+func sortedCoreAvailabilityIDs(availability map[string]CoreAvailability) []string {
+	ids := make([]string, 0, len(availability))
+	for objectID := range availability {
+		ids = append(ids, objectID)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 func findMetric(items []MetricItem, metricID, objectID string) (MetricItem, bool) {
