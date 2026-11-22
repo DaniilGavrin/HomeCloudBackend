@@ -379,3 +379,16 @@ func TestParseIntervalFieldsSupportsDocumentedMilliseconds(t *testing.T) {
 		})
 	}
 }
+
+
+func TestCalculateTotalUsageIncludesStealInBusyFraction(t *testing.T) {
+	previous := Counters{TotalSeconds: 100, UserSeconds: 25, IdleSeconds: 60, IOWaitSeconds: 10, StealSeconds: 5}
+	current := Counters{TotalSeconds: 110, UserSeconds: 25, IdleSeconds: 65, IOWaitSeconds: 12, StealSeconds: 8}
+	got, ok := CalculateTotalUsage(previous, current)
+	if !ok {
+		t.Fatal("expected valid CPU usage sample")
+	}
+	if got != 30 {
+		t.Fatalf("CPU usage = %v, want 30%% with steal counted as busy", got)
+	}
+}
