@@ -1,6 +1,7 @@
 package cpu
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -48,6 +49,27 @@ func TestParseFrequencyCommandParams(t *testing.T) {
 				t.Fatalf("core_id = %d, want %d", *got.CoreID, *test.want.CoreID)
 			}
 		})
+	}
+}
+
+func TestFilterFrequencyItemsPreservesRequestedMetricStatus(t *testing.T) {
+	params := frequencyCommandParams{FrequencyDomain: "policy999999"}
+	input := []MetricItem{
+		{MetricID: MetricFrequencyCurrent, ObjectID: "policy0", Status: StatusUnsupported},
+		{MetricID: MetricCoreFrequency, ObjectID: "policy0", Status: StatusUnsupported},
+	}
+	filtered, err := filterFrequencyItems(context.Background(), input, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundCurrent := false
+	for _, item := range filtered {
+		if item.MetricID == MetricFrequencyCurrent && item.ObjectID == "policy999999" && item.Status == StatusUnavailable {
+			foundCurrent = true
+		}
+	}
+	if !foundCurrent {
+		t.Fatalf("filtered response lost requested frequency metric status: %#v", filtered)
 	}
 }
 
