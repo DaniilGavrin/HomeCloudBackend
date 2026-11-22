@@ -773,6 +773,14 @@ func (m *Manager) publish(ctx context.Context, items []MetricItem) {
 				default:
 					if item.MetricID == sub.target {
 						filtered = append(filtered, item)
+					} else if item.Status != "" && item.Value == nil &&
+						((item.MetricID == MetricCStateTarget && isCStateTarget(sub.target)) ||
+							(item.MetricID == MetricThrottlingTarget && isThrottlingTarget(sub.target))) {
+						// A provider-level failure has no discovered child IDs.
+						// Fan its explicit status out to the requested child target
+						// instead of silently leaving that subscription without data.
+						item.MetricID = sub.target
+						filtered = append(filtered, item)
 					}
 				}
 			}
