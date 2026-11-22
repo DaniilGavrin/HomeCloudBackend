@@ -1168,7 +1168,7 @@ func coreTotalUsageItems(previous, current []CoreCounters, observedAt time.Time)
 			MetricItem{
 				MetricID: MetricCoreUsage, ObjectID: core.ObjectID,
 				Value: value, Unit: "percent", ObservedAt: timestamp,
-				Status: StatusValid, SourceID: "gopsutil.cpu.times", WindowMS: EffectiveInterval.Milliseconds(),
+				Status: StatusValid, SourceID: "gopsutil.cpu.times",
 			},
 		)
 	}
