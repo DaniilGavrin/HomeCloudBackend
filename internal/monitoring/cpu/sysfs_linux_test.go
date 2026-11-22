@@ -77,8 +77,8 @@ func TestReadLinuxFrequencyPolicies(t *testing.T) {
 	}
 	for _, cpuID := range []string{"cpu0", "cpu1"} {
 		coreFrequency, ok := findMetric(items, MetricCoreFrequency, cpuID)
-		if !ok || coreFrequency.Value != int64(1800000000) || coreFrequency.Unit != "Hz" {
-			t.Fatalf("per-core frequency for %s = %#v, found=%v; want 1800000000 Hz", cpuID, coreFrequency, ok)
+		if !ok || coreFrequency.Value != nil || coreFrequency.Unit != "" || coreFrequency.Status != StatusUnavailable || coreFrequency.Reason != "shared_policy_not_per_core" {
+			t.Fatalf("shared policy must not be reported as independent core frequency for %s: %#v, found=%v", cpuID, coreFrequency, ok)
 		}
 	}
 }
@@ -225,8 +225,8 @@ func TestReadLinuxFrequencyReportsExactCurrentFrequencySource(t *testing.T) {
 		t.Fatalf("current policy frequency = %#v (found=%v)", current, ok)
 	}
 	core, ok := findMetric(items, MetricCoreFrequency, "cpu0")
-	if !ok || core.Value != int64(2_500_000_000) || core.SourceID != "linux.host.sysfs.cpufreq.scaling_cur_freq" || core.Status != StatusPartial || core.Reason != "shared_frequency_policy" {
-		t.Fatalf("current core frequency = %#v (found=%v)", core, ok)
+	if !ok || core.Value != nil || core.Status != StatusUnavailable || core.Reason != "shared_policy_not_per_core" {
+		t.Fatalf("shared policy must not be reported as a per-core frequency: %#v (found=%v)", core, ok)
 	}
 
 	if err := os.Remove(filepath.Join(policy, "scaling_cur_freq")); err != nil {
@@ -242,7 +242,7 @@ func TestReadLinuxFrequencyReportsExactCurrentFrequencySource(t *testing.T) {
 		t.Fatalf("fallback current policy frequency = %#v (found=%v)", current, ok)
 	}
 	core, ok = findMetric(items, MetricCoreFrequency, "cpu0")
-	if !ok || core.Value != int64(2_600_000_000) || core.SourceID != "linux.host.sysfs.cpufreq.cpuinfo_cur_freq" || core.Status != StatusPartial {
-		t.Fatalf("fallback current core frequency = %#v (found=%v)", core, ok)
+	if !ok || core.Value != nil || core.Status != StatusUnavailable || core.Reason != "shared_policy_not_per_core" {
+		t.Fatalf("fallback shared policy must not be reported as a per-core frequency: %#v (found=%v)", core, ok)
 	}
 }
