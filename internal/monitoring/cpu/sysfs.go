@@ -153,18 +153,13 @@ func readLinuxFrequency(ctx context.Context, cpuSysfsPath string) ([]MetricItem,
 		// cpufreq policies may cover one or several logical CPUs. Expose the
 		// current policy value against each affected logical CPU when the
 		// kernel provides an explicit mapping.
-		cpuListText, listErr := readSysfsValue(filepath.Join(policyPath, "affected_cpus"))
-		if listErr != nil {
-			cpuListText, listErr = readSysfsValue(filepath.Join(policyPath, "related_cpus"))
-		}
+		cpuIDs, listErr := readPolicyCPUList(policyPath)
 		if listErr != nil {
 			status, reason, code := classifySourceError(listErr)
 			if errors.Is(listErr, os.ErrNotExist) {
 				status, reason, code = StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED"
 			}
 			items = append(items, statusItem(MetricCoreFrequency, objectID, status, reason, code, "linux.sysfs.cpufreq", now))
-		} else if cpuIDs, parseErr := parseCPUList(cpuListText); parseErr != nil {
-			items = append(items, statusItem(MetricCoreFrequency, objectID, StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.sysfs.cpufreq", now))
 		} else {
 			currentText, currentErr := readSysfsValue(filepath.Join(policyPath, "scaling_cur_freq"))
 			var currentHz uint64
@@ -461,13 +456,13 @@ func readPolicyCPUList(policyPath string) ([]int, error) {
 			continue
 		}
 		if strings.TrimSpace(raw) == "" {
-			lastErr = errors.New("cpufreq policy CPU list is empty")
+			lastErr = fmt.Errorf("%w: cpufreq policy CPU list is empty", os.ErrNotExist)
 			continue
 		}
 		cpus, err := parseCPUList(raw)
 		if err != nil || len(cpus) == 0 {
 			if err == nil {
-				err = errors.New("cpufreq policy CPU list is empty")
+				err = fmt.Errorf("%w: cpufreq policy CPU list is empty", os.ErrNotExist)
 			}
 			lastErr = err
 			continue
