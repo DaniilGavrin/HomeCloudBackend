@@ -22,7 +22,7 @@ func (c *SystemCollector) ReadSystemCounters(ctx context.Context) ([]MetricItem,
 	if err != nil {
 		return nil, err
 	}
-	runQueue := readLinuxRunQueue(ctx, defaultProcStatPath, defaultSchedDebugPaths)
+	runQueue := readLinuxRunQueue(ctx, defaultSchedDebugPaths)
 	replaced := false
 	for i := range items {
 		if items[i].MetricID == MetricRunQueue {
@@ -37,11 +37,11 @@ func (c *SystemCollector) ReadSystemCounters(ctx context.Context) ([]MetricItem,
 	return items, nil
 }
 
-// readLinuxRunQueue prefers scheduler debug data. Linux nr_running counts
-// runnable entities, including the currently executing task, so it is a
-// partial approximation of tasks waiting specifically for CPU. /proc/stat
-// procs_running has the same limitation and is also marked partial.
-func readLinuxRunQueue(ctx context.Context, procStatPath string, schedDebugPaths []string) MetricItem {
+// readLinuxRunQueue uses only scheduler data whose semantics match the
+// run-queue metric: runnable tasks waiting to be scheduled. /proc/stat's
+// procs_running also includes currently executing tasks, so it is not a
+// compatible fallback and must never be reported as system.cpu.runqueue.
+func readLinuxRunQueue(ctx context.Context, schedDebugPaths []string) MetricItem {
 	now := time.Now().UTC()
 	var lastReadErr error
 	for _, path := range schedDebugPaths {
@@ -62,34 +62,17 @@ func readLinuxRunQueue(ctx context.Context, procStatPath string, schedDebugPaths
 		if found {
 			return MetricItem{
 				MetricID: MetricRunQueue, Value: count, Unit: "count",
-				ObservedAt: now.Format(time.RFC3339Nano), Status: StatusPartial,
-				Reason: "includes_running_tasks", ErrorCode: "PARTIAL_RESULT",
-				SourceID: "linux.host.proc.sched_debug",
+				ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid,
+				SourceID: "linux.host.proc.sched_debug.nr_running",
 			}
 		}
 	}
 
-	data, err := os.ReadFile(procStatPath)
-	if err != nil {
-		if lastReadErr != nil {
-			err = lastReadErr
-		}
-		status, reason, code := classifySourceError(err)
-		return statusItem(MetricRunQueue, "", status, reason, code, "linux.host.proc.stat", now)
+	if lastReadErr != nil {
+		status, reason, code := classifySourceError(lastReadErr)
+		return statusItem(MetricRunQueue, "", status, reason, code, "linux.host.proc.sched_debug", now)
 	}
-	value, found, parseErr := parseProcStatCounter(data, "procs_running")
-	if parseErr != nil {
-		return statusItem(MetricRunQueue, "", StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.host.proc.stat", now)
-	}
-	if !found {
-		return statusItem(MetricRunQueue, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "linux.host.proc.stat", now)
-	}
-	return MetricItem{
-		MetricID: MetricRunQueue, Value: value, Unit: "count",
-		ObservedAt: now.Format(time.RFC3339Nano), Status: StatusPartial,
-		Reason: "includes_running_tasks", ErrorCode: "PARTIAL_RESULT",
-		SourceID: "linux.host.proc.stat.procs_running",
-	}
+	return statusItem(MetricRunQueue, "", StatusUnavailable, "no_semantically_compatible_source", "SOURCE_UNAVAILABLE", "linux.host.proc.sched_debug", now)
 }
 
 func parseSchedDebugRunQueue(data []byte) (uint64, bool, error) {
@@ -127,20 +110,4 @@ func parseSchedDebugRunQueue(data []byte) (uint64, bool, error) {
 		return 0, false, err
 	}
 	return total, found, nil
-}
-
-func parseProcStatCounter(data []byte, key string) (uint64, bool, error) {
-	scanner := bufio.NewScanner(strings.NewReader(string(data)))
-	for scanner.Scan() {
-		fields := strings.Fields(scanner.Text())
-		if len(fields) < 2 || fields[0] != key {
-			continue
-		}
-		value, err := strconv.ParseUint(fields[1], 10, 64)
-		return value, err == nil, err
-	}
-	if err := scanner.Err(); err != nil {
-		return 0, false, err
-	}
-	return 0, false, nil
 }
