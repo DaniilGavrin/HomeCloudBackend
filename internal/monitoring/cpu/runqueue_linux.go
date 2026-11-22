@@ -37,9 +37,10 @@ func (c *SystemCollector) ReadSystemCounters(ctx context.Context) ([]MetricItem,
 	return items, nil
 }
 
-// readLinuxRunQueue prefers scheduler debug data, where nr_running represents
-// queued runnable tasks. /proc/stat procs_running is a documented fallback,
-// but includes currently running tasks and is therefore marked partial.
+// readLinuxRunQueue prefers scheduler debug data. Linux nr_running counts
+// runnable entities, including the currently executing task, so it is a
+// partial approximation of tasks waiting specifically for CPU. /proc/stat
+// procs_running has the same limitation and is also marked partial.
 func readLinuxRunQueue(ctx context.Context, procStatPath string, schedDebugPaths []string) MetricItem {
 	now := time.Now().UTC()
 	var lastReadErr error
@@ -61,7 +62,8 @@ func readLinuxRunQueue(ctx context.Context, procStatPath string, schedDebugPaths
 		if found {
 			return MetricItem{
 				MetricID: MetricRunQueue, Value: count, Unit: "count",
-				ObservedAt: now.Format(time.RFC3339Nano), Status: StatusValid,
+				ObservedAt: now.Format(time.RFC3339Nano), Status: StatusPartial,
+				Reason: "includes_running_tasks", ErrorCode: "PARTIAL_RESULT",
 				SourceID: "linux.proc.sched_debug",
 			}
 		}
