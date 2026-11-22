@@ -72,3 +72,67 @@ func TestParseSubscriptionCreatePayloadRejectsAmbiguousOrInvalidForms(t *testing
 		})
 	}
 }
+
+
+func TestParseMonitoringCommandRequestAcceptsDocumentedEnvelopes(t *testing.T) {
+	tests := []struct {
+		name string
+		message Inbound
+		wantCommand string
+		wantParams string
+	}{
+		{
+			name: "appendix E payload envelope",
+			message: Inbound{Payload: json.RawMessage(`{"command_id":"system.cpu.totalusage","params":{"window_ms":1000}}`)},
+			wantCommand: "system.cpu.totalusage",
+			wantParams: `{"window_ms":1000}`,
+		},
+		{
+			name: "section 54 top-level envelope",
+			message: Inbound{Command: "system.cpu.totalusage", Params: json.RawMessage(`{"sample_interval_ms":1000}`)},
+			wantCommand: "system.cpu.totalusage",
+			wantParams: `{"sample_interval_ms":1000}`,
+		},
+		{
+			name: "matching mixed command aliases",
+			message: Inbound{Command: "system.cpu.totalusage", Payload: json.RawMessage(`{"command_id":"system.cpu.totalusage"}`)},
+			wantCommand: "system.cpu.totalusage",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			commandID, params, err := parseMonitoringCommandRequest(test.message)
+			if err != nil {
+				t.Fatalf("parseMonitoringCommandRequest() error = %v", err)
+			}
+			if commandID != test.wantCommand || string(params) != test.wantParams {
+				t.Fatalf("got command=%q params=%s, want command=%q params=%s", commandID, params, test.wantCommand, test.wantParams)
+			}
+		})
+	}
+}
+
+func TestParseMonitoringCommandRequestRejectsAmbiguousEnvelopes(t *testing.T) {
+	tests := []struct {
+		name string
+		message Inbound
+	}{
+		{
+			name: "conflicting command aliases",
+			message: Inbound{Command: "system.cpu.user", Payload: json.RawMessage(`{"command_id":"system.cpu.totalusage"}`)},
+		},
+		{
+			name: "conflicting params locations",
+			message: Inbound{Command: "system.cpu.totalusage", Params: json.RawMessage(`{"window_ms":1000}`), Payload: json.RawMessage(`{"params":{"window_ms":2000}}`)},
+		},
+		{name: "missing command", message: Inbound{}},
+		{name: "invalid payload", message: Inbound{Payload: json.RawMessage("not-json")}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, _, err := parseMonitoringCommandRequest(test.message); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
