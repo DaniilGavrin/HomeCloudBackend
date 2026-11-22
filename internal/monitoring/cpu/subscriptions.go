@@ -766,7 +766,16 @@ func (m *Manager) publish(ctx context.Context, items []MetricItem) {
 	}
 	for _, sub := range m.snapshot() {
 		filtered := items
-		if sub.target != Target {
+		if sub.target == Target {
+			// PMU is an explicit opt-in profile and must never leak into the
+			// base CPU group merely because another subscriber enabled it.
+			filtered = make([]MetricItem, 0, len(items))
+			for _, item := range items {
+				if !isPerfTarget(item.MetricID) {
+					filtered = append(filtered, item)
+				}
+			}
+		} else {
 			filtered = make([]MetricItem, 0, len(items))
 			for _, item := range items {
 				switch {
