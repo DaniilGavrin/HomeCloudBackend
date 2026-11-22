@@ -41,11 +41,11 @@ func readLinuxCStates(ctx context.Context, cpuSysfsPath string) ([]MetricItem, e
 	states, err := filepath.Glob(pattern)
 	if err != nil {
 		status, reason, code := classifySourceError(err)
-		return []MetricItem{statusItem(MetricCStateTarget, "", status, reason, code, "linux.sysfs.cpuidle", now)}, nil
+		return []MetricItem{statusItem(MetricCStateTarget, "", status, reason, code, "linux.host.sysfs.cpuidle", now)}, nil
 	}
 	sort.Strings(states)
 	if len(states) == 0 {
-		return []MetricItem{statusItem(MetricCStateTarget, "", StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.sysfs.cpuidle", now)}, nil
+		return []MetricItem{statusItem(MetricCStateTarget, "", StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.cpuidle", now)}, nil
 	}
 	items := make([]MetricItem, 0, len(states))
 	seenCPUs := make(map[string]bool)
@@ -64,7 +64,7 @@ func readLinuxCStates(ctx context.Context, cpuSysfsPath string) ([]MetricItem, e
 				nameErr = errors.New("cpuidle state name is empty")
 			}
 			status, reason, code := classifySourceError(nameErr)
-			items = append(items, statusItem(MetricCStateTarget, objectID, status, reason, code, "linux.sysfs.cpuidle", now))
+			items = append(items, statusItem(MetricCStateTarget, objectID, status, reason, code, "linux.host.sysfs.cpuidle", now))
 			continue
 		}
 		metricID := MetricCStateTarget + "." + metricSlug(name)
@@ -77,19 +77,19 @@ func readLinuxCStates(ctx context.Context, cpuSysfsPath string) ([]MetricItem, e
 			if errors.Is(readErr, os.ErrNotExist) {
 				status, reason, code = StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED"
 			}
-			items = append(items, statusItem(metricID, objectID, status, reason, code, "linux.sysfs.cpuidle", now))
+			items = append(items, statusItem(metricID, objectID, status, reason, code, "linux.host.sysfs.cpuidle", now))
 			continue
 		}
 		microseconds, parseErr := strconv.ParseUint(timeText, 10, 64)
 		if parseErr != nil || microseconds > math.MaxInt64/uint64(time.Microsecond) {
-			items = append(items, statusItem(metricID, objectID, StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.sysfs.cpuidle", now))
+			items = append(items, statusItem(metricID, objectID, StatusInvalid, "invalid_value", "SOURCE_INVALID_DATA", "linux.host.sysfs.cpuidle", now))
 			continue
 		}
 		items = append(items, MetricItem{
 			MetricID: metricID, ObjectID: objectID,
 			Value: int64(microseconds * uint64(time.Microsecond)),
 			Unit: "ns", ObservedAt: now.Format(time.RFC3339Nano),
-			Status: StatusValid, SourceID: "linux.sysfs.cpuidle",
+			Status: StatusValid, SourceID: "linux.host.sysfs.cpuidle",
 		})
 	}
 	if presentText, presentErr := readSysfsValue(filepath.Join(cpuSysfsPath, "present")); presentErr == nil {
@@ -97,7 +97,7 @@ func readLinuxCStates(ctx context.Context, cpuSysfsPath string) ([]MetricItem, e
 			for _, cpuID := range cpuIDs {
 				cpuName := fmt.Sprintf("cpu%d", cpuID)
 				if !seenCPUs[cpuName] {
-					items = append(items, statusItem(MetricCStateTarget, cpuName, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.sysfs.cpuidle", now))
+					items = append(items, statusItem(MetricCStateTarget, cpuName, StatusUnsupported, "unsupported_device", "METRIC_UNSUPPORTED", "linux.host.sysfs.cpuidle", now))
 				}
 			}
 		}
