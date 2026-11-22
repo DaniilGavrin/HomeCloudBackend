@@ -348,3 +348,34 @@ func TestCalculateTotalUsageRejectsResetInAnyCPUState(t *testing.T) {
 		t.Fatal("aggregate usage must reject a reset in a component counter even when total time increased")
 	}
 }
+
+
+func TestParseIntervalFieldsSupportsDocumentedMilliseconds(t *testing.T) {
+	tests := []struct {
+		name string
+		sampleInterval json.RawMessage
+		sampleIntervalMS json.RawMessage
+		windowMS json.RawMessage
+		want time.Duration
+		wantErr bool
+	}{
+		{name: "canonical sample_interval_ms", sampleIntervalMS: json.RawMessage("500"), want: 500 * time.Millisecond},
+		{name: "legacy duration string", sampleInterval: json.RawMessage(`"500ms"`), want: 500 * time.Millisecond},
+		{name: "legacy window_ms", windowMS: json.RawMessage("750"), want: 750 * time.Millisecond},
+		{name: "conflicting parameters", sampleInterval: json.RawMessage(`"500ms"`), sampleIntervalMS: json.RawMessage("500"), wantErr: true},
+		{name: "below minimum", sampleIntervalMS: json.RawMessage("50"), wantErr: true},
+		{name: "above maximum", sampleIntervalMS: json.RawMessage("11000"), wantErr: true},
+		{name: "milliseconds must be integer", sampleIntervalMS: json.RawMessage(`"500"`), wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := parseIntervalFields(test.sampleInterval, test.sampleIntervalMS, test.windowMS)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("parseIntervalFields() error = %v, wantErr=%v", err, test.wantErr)
+			}
+			if err == nil && got != test.want {
+				t.Fatalf("parseIntervalFields() = %s, want %s", got, test.want)
+			}
+		})
+	}
+}
