@@ -452,6 +452,34 @@ func findNUMANode(cpuPath string) string {
 	return strings.TrimPrefix(filepath.Base(matches[0]), "node")
 }
 
+func readPolicyCPUList(policyPath string) ([]int, error) {
+	var lastErr error
+	for _, filename := range []string{"affected_cpus", "related_cpus"} {
+		raw, err := readSysfsValue(filepath.Join(policyPath, filename))
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if strings.TrimSpace(raw) == "" {
+			lastErr = errors.New("cpufreq policy CPU list is empty")
+			continue
+		}
+		cpus, err := parseCPUList(raw)
+		if err != nil || len(cpus) == 0 {
+			if err == nil {
+				err = errors.New("cpufreq policy CPU list is empty")
+			}
+			lastErr = err
+			continue
+		}
+		return cpus, nil
+	}
+	if lastErr == nil {
+		lastErr = errors.New("cpufreq policy CPU list is unavailable")
+	}
+	return nil, lastErr
+}
+
 func frequencyPoliciesForCPU(cpuSysfsPath string, cpuID int64) []string {
 	policies, err := filepath.Glob(filepath.Join(cpuSysfsPath, "cpufreq", "policy[0-9]*"))
 	if err != nil {
@@ -460,15 +488,8 @@ func frequencyPoliciesForCPU(cpuSysfsPath string, cpuID int64) []string {
 	sort.Strings(policies)
 	result := make([]string, 0, 1)
 	for _, policyPath := range policies {
-		cpuList, readErr := readSysfsValue(filepath.Join(policyPath, "affected_cpus"))
+		cpuIDs, readErr := readPolicyCPUList(policyPath)
 		if readErr != nil {
-			cpuList, readErr = readSysfsValue(filepath.Join(policyPath, "related_cpus"))
-		}
-		if readErr != nil {
-			continue
-		}
-		cpuIDs, parseErr := parseCPUList(cpuList)
-		if parseErr != nil {
 			continue
 		}
 		for _, id := range cpuIDs {
@@ -494,14 +515,7 @@ func cpusForFrequencyPolicy(cpuSysfsPath, policyID string) []int {
 		return nil
 	}
 	path := filepath.Join(cpuSysfsPath, "cpufreq", policyID)
-	cpuList, err := readSysfsValue(filepath.Join(path, "affected_cpus"))
-	if err != nil {
-		cpuList, err = readSysfsValue(filepath.Join(path, "related_cpus"))
-	}
-	if err != nil {
-		return nil
-	}
-	cpus, err := parseCPUList(cpuList)
+	cpus, err := readPolicyCPUList(path)
 	if err != nil {
 		return nil
 	}
