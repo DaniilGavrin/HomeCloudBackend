@@ -131,3 +131,59 @@ func writeFileForTest(path, value string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil { return err }
 	return os.WriteFile(path, []byte(value), 0o644)
 }
+
+
+func TestReadLinuxCStatesMarksOfflineCPUUnavailable(t *testing.T) {
+	root := t.TempDir()
+	writeSysfsTestFile(t, filepath.Join(root, "present"), "0-1")
+	writeSysfsTestFile(t, filepath.Join(root, "online"), "1")
+	writeSysfsTestFile(t, filepath.Join(root, "cpu0", "cpuidle", "state0", "name"), "C1")
+	writeSysfsTestFile(t, filepath.Join(root, "cpu0", "cpuidle", "state0", "time"), "100")
+	writeSysfsTestFile(t, filepath.Join(root, "cpu1", "cpuidle", "state0", "name"), "C1")
+	writeSysfsTestFile(t, filepath.Join(root, "cpu1", "cpuidle", "state0", "time"), "200")
+
+	items, err := readLinuxCStates(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offline, ok := findMetric(items, MetricCStateTarget+".c1", "cpu0/state0")
+	if !ok || offline.Status != StatusUnavailable || offline.Reason != "cpu_offline" || offline.Value != nil {
+		t.Fatalf("offline C-state = %#v, found=%v", offline, ok)
+	}
+	online, ok := findMetric(items, MetricCStateTarget+".c1", "cpu1/state0")
+	if !ok || online.Status != StatusValid || online.Value != int64(200*uint64(time.Microsecond)) {
+		t.Fatalf("online C-state = %#v, found=%v", online, ok)
+	}
+}
+
+func TestReadLinuxThrottlingMarksOfflineCoreUnavailable(t *testing.T) {
+	root := t.TempDir()
+	writeSysfsTestFile(t, filepath.Join(root, "present"), "0-1")
+	writeSysfsTestFile(t, filepath.Join(root, "online"), "1")
+	for _, cpuID := range []string{"cpu0", "cpu1"} {
+		writeSysfsTestFile(t, filepath.Join(root, cpuID, "topology", "physical_package_id"), "0")
+		writeSysfsTestFile(t, filepath.Join(root, cpuID, "thermal_throttle", "core_throttle_count"), "2")
+		writeSysfsTestFile(t, filepath.Join(root, cpuID, "thermal_throttle", "core_throttle_total_time_ms"), "5")
+		writeSysfsTestFile(t, filepath.Join(root, cpuID, "thermal_throttle", "core_power_limit_count"), "1")
+	}
+	writeSysfsTestFile(t, filepath.Join(root, "cpu0", "thermal_throttle", "package_throttle_count"), "3")
+	writeSysfsTestFile(t, filepath.Join(root, "cpu0", "thermal_throttle", "package_throttle_total_time_ms"), "7")
+	writeSysfsTestFile(t, filepath.Join(root, "cpu0", "thermal_throttle", "package_power_limit_count"), "4")
+
+	items, err := readLinuxThrottling(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offline, ok := findMetric(items, MetricThrottleThermalCoreEvents, "cpu0")
+	if !ok || offline.Status != StatusUnavailable || offline.Reason != "cpu_offline" || offline.Value != nil {
+		t.Fatalf("offline core throttling = %#v, found=%v", offline, ok)
+	}
+	online, ok := findMetric(items, MetricThrottleThermalCoreEvents, "cpu1")
+	if !ok || online.Status != StatusValid || online.Value != uint64(2) {
+		t.Fatalf("online core throttling = %#v, found=%v", online, ok)
+	}
+	pkg, ok := findMetric(items, MetricThrottleThermalPackageEvents, "package0")
+	if !ok || pkg.Status != StatusValid || pkg.Value != uint64(3) {
+		t.Fatalf("package throttling must remain package-scoped: %#v, found=%v", pkg, ok)
+	}
+}
