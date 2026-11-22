@@ -534,6 +534,15 @@ func itemsFor(current Snapshot, previous *Snapshot, observedAt time.Time) []Metr
 	}
 	items = append(items, coreUserItems(current.Cores, observedAt)...)
 	if previous != nil {
+		currentCoreIDs := make(map[string]bool, len(current.Cores))
+		for _, core := range current.Cores {
+			currentCoreIDs[core.ObjectID] = true
+		}
+		for _, core := range previous.Cores {
+			if !currentCoreIDs[core.ObjectID] && !hasMetricStatus(current.Issues, MetricCoreUser, core.ObjectID) {
+				items = append(items, statusItem(MetricCoreUser, core.ObjectID, StatusUnavailable, "source_failure", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", observedAt))
+			}
+		}
 		coreItems := coreTotalUsageItems(previous.Cores, current.Cores, observedAt)
 		windowMS := sampleWindowMilliseconds(*previous, current)
 		for i := range coreItems {
@@ -554,7 +563,13 @@ func itemsFor(current Snapshot, previous *Snapshot, observedAt time.Time) []Metr
 			)
 		}
 	}
-	items = append(items, current.Issues...)
+	for _, issue := range current.Issues {
+		if isPerCoreCPUMetric(issue.MetricID) {
+			items = upsertCoreStatus(items, issue, true)
+		} else {
+			items = append(items, issue)
+		}
+	}
 	return applyCoreAvailability(items, current, previous)
 }
 
