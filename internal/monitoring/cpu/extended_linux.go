@@ -263,17 +263,17 @@ func hasThrottleObject(items []MetricItem, metricID, objectID string) bool {
 	return false
 }
 
-// readLinuxSystemCounters reads host-wide cumulative counters and scheduler
-// gauges from /proc/stat. Linux procs_running counts tasks that are running or
-// runnable; it is the kernel's host-wide run-queue gauge and is not Load Average.
+// readLinuxSystemCounters reads host-wide cumulative counters and process
+// state gauges from /proc/stat. procs_running includes tasks currently running
+// or runnable; it is not the waiting-only system.cpu.runqueue metric.
 func readLinuxSystemCounters(ctx context.Context, procStatPath string) ([]MetricItem, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if runtime.GOOS != "linux" {
 		now := time.Now().UTC()
-		items := make([]MetricItem, 0, 6)
-		for _, metricID := range []string{MetricInterrupts, MetricContextSwitches, MetricForks, MetricProcessesRunning, MetricProcessesBlocked, MetricRunQueue} {
+		items := make([]MetricItem, 0, 5)
+		for _, metricID := range []string{MetricInterrupts, MetricContextSwitches, MetricForks, MetricProcessesRunning, MetricProcessesBlocked} {
 			items = append(items, statusItem(metricID, "", StatusUnsupported, "unsupported_platform", "METRIC_UNSUPPORTED", "platform.proc.stat", now))
 		}
 		return items, nil
@@ -282,8 +282,8 @@ func readLinuxSystemCounters(ctx context.Context, procStatPath string) ([]Metric
 	file, err := os.Open(procStatPath)
 	if err != nil {
 		status, reason, code := classifySourceError(err)
-		items := make([]MetricItem, 0, 6)
-		for _, metricID := range []string{MetricInterrupts, MetricContextSwitches, MetricForks, MetricProcessesRunning, MetricProcessesBlocked, MetricRunQueue} {
+		items := make([]MetricItem, 0, 5)
+		for _, metricID := range []string{MetricInterrupts, MetricContextSwitches, MetricForks, MetricProcessesRunning, MetricProcessesBlocked} {
 			items = append(items, statusItem(metricID, "", status, reason, code, "linux.host.proc.stat", now))
 		}
 		return items, nil
@@ -300,7 +300,6 @@ func readLinuxSystemCounters(ctx context.Context, procStatPath string) ([]Metric
 		{key: "processes", metricID: MetricForks},
 		{key: "procs_running", metricID: MetricProcessesRunning},
 		{key: "procs_blocked", metricID: MetricProcessesBlocked},
-		{key: "procs_running", metricID: MetricRunQueue},
 	}
 	values := make(map[string]uint64, 5)
 	invalid := make(map[string]bool, 5)
