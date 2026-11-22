@@ -24,6 +24,8 @@ const (
 	MetricPressureTarget = "system.cpu.pressure"
 	MetricPressureSome = "system.cpu.pressure.some"
 	MetricPressureFull = "system.cpu.pressure.full"
+	MetricPressureSomeTotal = "system.cpu.pressure.some.total"
+	MetricPressureFullTotal = "system.cpu.pressure.full.total"
 	MetricPerfTarget = "system.cpu.perf"
 	MetricPerfCycles = "system.cpu.perf.cycles"
 	MetricPerfRefCycles = "system.cpu.perf.ref_cycles"
@@ -111,6 +113,7 @@ func validTarget(target string) bool {
 		MetricThrottlePowerCoreDuration, MetricThrottlePowerPackageDuration, MetricThrottleActive,
 		MetricProcessesTarget, MetricForks, MetricProcessesRunning, MetricProcessesBlocked,
 		MetricRunQueue, MetricPressureTarget, MetricPressureSome, MetricPressureFull,
+		MetricPressureSomeTotal, MetricPressureFullTotal,
 		MetricPerfTarget, MetricPerfCycles, MetricPerfRefCycles, MetricPerfInstructions,
 		MetricPerfIPC, MetricPerfBranches, MetricPerfBranchMisses, MetricPerfCacheReferences,
 		MetricPerfCacheMisses, MetricPerfBusCycles, MetricPerfStalledFrontend, MetricPerfStalledBackend,
