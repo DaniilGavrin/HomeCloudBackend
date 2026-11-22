@@ -354,8 +354,9 @@ func CalculateTotalUsage(previous, current Counters) (float64, bool) {
 		return 0, false
 	}
 	totalDelta := current.TotalSeconds - previous.TotalSeconds
-	// Linux I/O wait is preserved as its own counter but excluded from busy
-	// CPU time: the CPU is not executing work while waiting for I/O.
+	// I/O wait is preserved as its own counter but excluded from busy CPU
+	// time. Steal remains part of the busy fraction and is also exposed as an
+	// independent counter so virtual CPU contention stays visible.
 	previousIdle := previous.IdleSeconds + previous.IOWaitSeconds
 	currentIdle := current.IdleSeconds + current.IOWaitSeconds
 	idleDelta := currentIdle - previousIdle
