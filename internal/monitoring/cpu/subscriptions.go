@@ -592,11 +592,7 @@ func applyCoreAvailability(items []MetricItem, current Snapshot, previous *Snaps
 	}
 	// Emit explicit states for present CPUs that are offline or unexpectedly
 	// absent from gopsutil's online per-CPU sample, including on first sample.
-	availabilityIDs := make([]string, 0, len(current.CoreAvailability))
-	for objectID := range current.CoreAvailability {
-		availabilityIDs = append(availabilityIDs, objectID)
-	}
-	sort.Strings(availabilityIDs)
+	availabilityIDs := sortedCoreAvailabilityIDs(current.CoreAvailability)
 	for _, objectID := range availabilityIDs {
 		if currentCores[objectID] {
 			continue
