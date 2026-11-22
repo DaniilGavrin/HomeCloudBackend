@@ -153,21 +153,13 @@ func (s *Server) handleSubscriptionCreate(message Inbound, peer *connections.Pee
 		code, category, description, retryable := classifiedErrorFields(err)
 		return s.subscriptionError(message.CorrelationID, "", code, category, description, retryable), nil
 	}
-	var payload struct {
-		Target     string `json:"target"`
-		IntervalMS int64  `json:"interval_ms"`
+	target, intervalMS, err := parseSubscriptionCreatePayload(message.Payload)
+	if err != nil {
+		code, category, description, retryable := classifiedErrorFields(err)
+		return s.subscriptionError(message.CorrelationID, target, code, category, description, retryable), nil
 	}
-	if len(message.Payload) == 0 {
-		return s.subscriptionError(message.CorrelationID, "", "VALIDATION_MISSING_FIELD", "validation", "target and interval_ms are required", false), nil
-	}
-	if err := json.Unmarshal(message.Payload, &payload); err != nil {
-		return s.subscriptionError(message.CorrelationID, "", "VALIDATION_INVALID_FIELD", "validation", "subscription payload has an invalid structure", false), nil
-	}
-	if payload.Target == "" || payload.IntervalMS == 0 {
-		return s.subscriptionError(message.CorrelationID, payload.Target, "VALIDATION_MISSING_FIELD", "validation", "target and interval_ms are required", false), nil
-	}
-	if payload.IntervalMS != cpumonitor.EffectiveInterval.Milliseconds() {
-		return s.subscriptionError(message.CorrelationID, payload.Target, "SUBSCRIPTION_INTERVAL_UNSUPPORTED", "validation", cpumonitor.ErrInvalidInterval.Error(), false), nil
+	if intervalMS != cpumonitor.EffectiveInterval.Milliseconds() {
+		return s.subscriptionError(message.CorrelationID, target, "SUBSCRIPTION_INTERVAL_UNSUPPORTED", "validation", cpumonitor.ErrInvalidInterval.Error(), false), nil
 	}
 	deliver := func(ctx context.Context, outbound commands.Outbound) error {
 		err := peer.QueueJSON(ctx, outbound)
@@ -176,7 +168,7 @@ func (s *Server) handleSubscriptionCreate(message Inbound, peer *connections.Pee
 		}
 		return err
 	}
-	id, err := s.cpuMonitoring.Subscribe(peer.ConnectedAt.UnixNano(), payload.Target, time.Duration(payload.IntervalMS)*time.Millisecond, deliver)
+	id, err := s.cpuMonitoring.Subscribe(peer.ConnectedAt.UnixNano(), target, time.Duration(intervalMS)*time.Millisecond, deliver)
 	if err != nil {
 		code, category, retryable := "PROVIDER_FAILURE", "execution", false
 		switch {
@@ -189,16 +181,79 @@ func (s *Server) handleSubscriptionCreate(message Inbound, peer *connections.Pee
 		case errors.Is(err, cpumonitor.ErrManagerClosed):
 			code, category, retryable = "NODE_UNAVAILABLE", "routing", true
 		}
-		return s.subscriptionError(message.CorrelationID, payload.Target, code, category, err.Error(), retryable), nil
+		return s.subscriptionError(message.CorrelationID, target, code, category, err.Error(), retryable), nil
 	}
 	ack := Outbound{
 		V: 1, Type: "subscription.created", CorrelationID: message.CorrelationID, NodeID: s.localNodeID,
 		Payload: map[string]any{
-			"subscription_id": id, "target": payload.Target,
+			"subscription_id": id, "target": target,
 			"effective_interval_ms": cpumonitor.EffectiveInterval.Milliseconds(),
 		},
 	}
 	return ack, s.cpuMonitoring.Wake
+}
+
+
+func parseSubscriptionCreatePayload(raw json.RawMessage) (string, int64, error) {
+	if len(raw) == 0 {
+		return "", 0, commands.NewClassifiedError("VALIDATION_MISSING_FIELD", "validation", "target and interval_ms are required", false, nil)
+	}
+	var payload struct {
+		Target             json.RawMessage `json:"target"`
+		IntervalMS         *int64          `json:"interval_ms"`
+		DeliveryIntervalMS *int64          `json:"delivery_interval_ms"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return "", 0, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "subscription payload has an invalid structure", false, err)
+	}
+	target, err := parseSubscriptionTarget(payload.Target)
+	if err != nil {
+		return target, 0, err
+	}
+	if payload.IntervalMS != nil && payload.DeliveryIntervalMS != nil && *payload.IntervalMS != *payload.DeliveryIntervalMS {
+		return target, 0, commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "interval_ms and delivery_interval_ms must match when both are provided", false, nil)
+	}
+	interval := payload.IntervalMS
+	if interval == nil {
+		interval = payload.DeliveryIntervalMS
+	}
+	if interval == nil {
+		return target, 0, commands.NewClassifiedError("VALIDATION_MISSING_FIELD", "validation", "interval_ms is required", false, nil)
+	}
+	if *interval <= 0 {
+		return target, 0, commands.NewClassifiedError("VALIDATION_OUT_OF_RANGE", "validation", "subscription interval must be positive", false, nil)
+	}
+	return target, *interval, nil
+}
+
+func parseSubscriptionTarget(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 {
+		return "", commands.NewClassifiedError("VALIDATION_MISSING_FIELD", "validation", "target is required", false, nil)
+	}
+	var target string
+	if err := json.Unmarshal(raw, &target); err == nil {
+		if target == "" {
+			return "", commands.NewClassifiedError("VALIDATION_MISSING_FIELD", "validation", "target is required", false, nil)
+		}
+		return target, nil
+	}
+	var object struct {
+		Group    string `json:"group"`
+		MetricID string `json:"metric_id"`
+	}
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return "", commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "target must be a string or target object", false, err)
+	}
+	if object.Group != "" && object.MetricID != "" {
+		return "", commands.NewClassifiedError("VALIDATION_INVALID_FIELD", "validation", "target object must contain either group or metric_id", false, nil)
+	}
+	if object.Group != "" {
+		return object.Group, nil
+	}
+	if object.MetricID != "" {
+		return object.MetricID, nil
+	}
+	return "", commands.NewClassifiedError("VALIDATION_MISSING_FIELD", "validation", "target object requires group or metric_id", false, nil)
 }
 
 func (s *Server) handleSubscriptionCancel(message Inbound, peer *connections.Peer) Outbound {
