@@ -731,7 +731,7 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 				items = append(items, issue)
 			}
 		}
-		return items, nil
+		return applyCoreAvailability(items, snapshot, nil), nil
 	})
 	readTopology := func(ctx context.Context) ([]MetricItem, error) {
 		items, err := readLinuxTopology(ctx, defaultSysfsCPUPath)
@@ -871,6 +871,7 @@ func RegisterCommands(registry *commands.Registry, collector Collector) {
 				statusItem(MetricCoreUsage, "", StatusUnavailable, "not_discovered", "SOURCE_UNAVAILABLE", "gopsutil.cpu.times", time.Now().UTC()),
 			}
 		}
+		items = applyCoreAvailability(items, after, &before)
 		return filterCoreUsageItems(ctx, items, params.CPUId, params.CoreID)
 	}
 	registry.MustRegister(MetricCoreTotalUsage, func(ctx context.Context, msg commands.Inbound, _ commands.ClientContext) (any, error) {
