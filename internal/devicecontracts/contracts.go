@@ -38,6 +38,21 @@ type Capability struct {
 	Raw     json.RawMessage `json:"-"`
 }
 
+// UnmarshalJSON retains the complete declaration. The normative capability
+// schema is validated separately; unknown optional fields must not be dropped.
+func (c *Capability) UnmarshalJSON(data []byte) error {
+	var header struct {
+		ID      string `json:"id"`
+		Version int    `json:"version"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
+		return err
+	}
+	c.ID, c.Version = header.ID, header.Version
+	c.Raw = append(c.Raw[:0], data...)
+	return nil
+}
+
 type EntityDefinition struct {
 	ID           string          `json:"id"`
 	ValueType    string          `json:"value_type"`
@@ -47,12 +62,12 @@ type EntityDefinition struct {
 }
 
 type Claim struct {
-	ContractsVersion  int             `json:"contracts_version"`
-	Identity          Identity        `json:"identity"`
-	DeviceType        DeviceType      `json:"device_type"`
-	Metadata          json.RawMessage `json:"metadata,omitempty"`
-	CapabilityRevision int64          `json:"capability_revision"`
-	Capabilities      []Capability    `json:"capabilities"`
+	ContractsVersion   int             `json:"contracts_version"`
+	Identity           Identity        `json:"identity"`
+	DeviceType         DeviceType      `json:"device_type"`
+	Metadata           json.RawMessage `json:"metadata,omitempty"`
+	CapabilityRevision int64           `json:"capability_revision"`
+	Capabilities       []Capability    `json:"capabilities"`
 }
 
 var stableID = regexp.MustCompile(`^[a-z][a-z0-9_.-]{0,127}$`)
