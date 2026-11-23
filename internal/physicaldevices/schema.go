@@ -32,7 +32,7 @@ var schemaV1 = []string{
 		identity_quality TEXT NOT NULL CHECK(identity_quality IN ('stable','session_only','weak')),
 		device_id TEXT NOT NULL REFERENCES hc_physical_devices(device_id) ON DELETE RESTRICT,
 		created_at TEXT NOT NULL,
-		last_seen_at TEXT NOT NULL,
+		last_seen_at TEXT NOT NULL
 	)`,
 	`CREATE INDEX idx_hc_device_identity_lookup ON hc_device_identity_mappings(integration_id,native_device_id)`,
 	`CREATE UNIQUE INDEX idx_hc_device_identity_stable ON hc_device_identity_mappings(integration_id,native_device_id) WHERE identity_quality='stable'`,
