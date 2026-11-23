@@ -35,6 +35,7 @@ var schemaV1 = []string{
 		last_seen_at TEXT NOT NULL,
 	)`,
 	`CREATE INDEX idx_hc_device_identity_lookup ON hc_device_identity_mappings(integration_id,native_device_id)`,
+	`CREATE UNIQUE INDEX idx_hc_device_identity_stable ON hc_device_identity_mappings(integration_id,native_device_id) WHERE identity_quality='stable'`,
 	`CREATE INDEX idx_hc_device_identity_device ON hc_device_identity_mappings(device_id)`,
 	`CREATE TABLE hc_physical_device_capabilities (
 		device_id TEXT NOT NULL REFERENCES hc_physical_devices(device_id) ON DELETE CASCADE,
