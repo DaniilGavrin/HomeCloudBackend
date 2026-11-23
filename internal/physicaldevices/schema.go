@@ -26,15 +26,15 @@ var schemaV1 = []string{
 	)`,
 	`CREATE INDEX idx_hc_physical_devices_type ON hc_physical_devices(device_type_id,status)`,
 	`CREATE TABLE hc_device_identity_mappings (
+		mapping_id TEXT PRIMARY KEY,
 		integration_id TEXT NOT NULL,
 		native_device_id TEXT NOT NULL,
 		identity_quality TEXT NOT NULL CHECK(identity_quality IN ('stable','session_only','weak')),
 		device_id TEXT NOT NULL REFERENCES hc_physical_devices(device_id) ON DELETE RESTRICT,
 		created_at TEXT NOT NULL,
 		last_seen_at TEXT NOT NULL,
-		PRIMARY KEY(integration_id,native_device_id)
 	)`,
-	`CREATE UNIQUE INDEX idx_hc_device_identity_stable ON hc_device_identity_mappings(integration_id,native_device_id) WHERE identity_quality='stable'`,
+	`CREATE INDEX idx_hc_device_identity_lookup ON hc_device_identity_mappings(integration_id,native_device_id)`,
 	`CREATE INDEX idx_hc_device_identity_device ON hc_device_identity_mappings(device_id)`,
 	`CREATE TABLE hc_physical_device_capabilities (
 		device_id TEXT NOT NULL REFERENCES hc_physical_devices(device_id) ON DELETE CASCADE,
