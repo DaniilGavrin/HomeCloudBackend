@@ -53,6 +53,19 @@ func (c *Capability) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// MarshalJSON emits the original complete declaration when it was decoded
+// from the Bridge payload, preserving optional contract fields on round-trip.
+func (c Capability) MarshalJSON() ([]byte, error) {
+	if len(c.Raw) > 0 {
+		if !json.Valid(c.Raw) {
+			return nil, errors.New("invalid retained capability declaration")
+		}
+		return append([]byte(nil), c.Raw...), nil
+	}
+	type capabilityAlias Capability
+	return json.Marshal(capabilityAlias(c))
+}
+
 type EntityDefinition struct {
 	ID           string          `json:"id"`
 	ValueType    string          `json:"value_type"`
