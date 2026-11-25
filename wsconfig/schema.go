@@ -1,113 +1,336 @@
 package wsconfig
 
-import (
-	"fmt"
-	"reflect"
-	"strings"
-)
+// Code organized as strongly-typed YAML configuration schema.
+// All fields in config.yaml are declared here.
 
-// NumericBounds is the explicit contract of numeric settings in STRICT mode.
-// Disabled subsystems may use zero where their documented settings are optional.
-// start_byte and db_byte are 8-bit enums; those are checked separately.
-type NumericBound struct{ Min, Max int64 }
-
-var NumericBounds = map[string]NumericBound{
-	"agents.heartbeat_interval_seconds":                      {0, 3600},
-	"agents.offline_after_seconds":                           {0, 86400},
-	"audio.default_volume_percent":                           {0, 100},
-	"audio.max_volume_percent":                               {0, 100},
-	"audit.retention_days":                                   {1, 3650},
-	"automations.default_action_timeout_seconds":             {0, 86400},
-	"automations.max_concurrent_actions":                     {0, 10000},
-	"backups.keep_last":                                      {0, 10000},
-	"config_version":                                         {1, 1},
-	"db_server.connection_max_idle_seconds":                  {0, 604800},
-	"db_server.connection_max_lifetime_seconds":              {0, 604800},
-	"db_server.connection_timeout":                           {1, 3600},
-	"db_server.max_idle_connections":                         {0, 100000},
-	"db_server.max_open_connections":                         {1, 100000},
-	"db_server.port":                                         {0, 65535},
-	"db_server.sqlite.busy_timeout_ms":                       {0, 300000},
-	"devices.heartbeat_interval_seconds":                     {1, 3600},
-	"devices.offline_after_seconds":                          {2, 86400},
-	"device_bridge.startup_timeout_seconds":                    {1, 180},
-	"device_bridge.shutdown_timeout_seconds":                   {1, 120},
-	"device_bridge.heartbeat_timeout_seconds":                 {15, 600},
-	"device_bridge.initial_backoff_seconds":                   {1, 60},
-	"device_bridge.max_backoff_seconds":                       {1, 600},
-	"integrations.mqtt.port":                                 {0, 65535},
-	"integrations.mqtt.qos":                                  {0, 2},
-	"media_gateway.startup_timeout_seconds":                  {0, 120},
-	"media_gateway.shutdown_timeout_seconds":                 {0, 120},
-	"media_gateway.max_restarts":                             {0, 10},
-	"media_gateway.restart_backoff_seconds":                  {0, 120},
-	"message_bus.command_ack_timeout_seconds":                {1, 3600},
-	"message_bus.deduplication_window_seconds":               {0, 86400},
-	"message_bus.event_history.retention_days":               {0, 3650},
-	"message_bus.max_pending_commands_per_client":            {1, 100000},
-	"monitoring.metrics_retention_days":                      {0, 3650},
-	"monitoring.sample_interval_seconds":                     {1, 86400},
-	"notifications.deduplication_window_seconds":             {0, 86400},
-	"screens.default_content_timeout_seconds":                {1, 86400},
-	"security.critical_actions.confirmation_timeout_seconds": {1, 3600},
-	"security.pairing.max_attempts":                          {1, 1000},
-	"security.pairing.pairing_window_seconds":                {1, 3600},
-	"server.port":                           {1, 65535},
-	"server.read_header_timeout_seconds":    {1, 300},
-	"server.shutdown_timeout_seconds":       {1, 3600},
-	"storage.max_upload_size_mb":            {0, 1048576},
-	"websocket.max_connections":             {1, 100000},
-	"websocket.hello_timeout_seconds":       {1, 300},
-	"websocket.max_connections_per_ip":      {1, 100000},
-	"websocket.max_message_bytes":           {256, 4194304},
-	"websocket.max_messages_per_second":     {1, 100000},
-	"websocket.max_outbound_queue_messages": {1, 100000},
-	"websocket.ping_interval_seconds":       {2, 3600},
-	"websocket.pong_timeout_seconds":        {1, 3599},
-	"websocket.protocol_version":            {1, 1},
-	"websocket.write_timeout_seconds":       {1, 300},
+type Config struct {
+	ConfigVersion int                 `yaml:"config_version"`
+	Home          HomeConfig          `yaml:"home"`
+	Server        ServerConfig        `yaml:"server"`
+	WebSocket     WebSocketConfig     `yaml:"websocket"`
+	MessageBus    MessageBusConfig    `yaml:"message_bus"`
+	Security      SecurityConfig      `yaml:"security"`
+	DBServer      DBServerConfig      `yaml:"db_server"`
+	Devices       DevicesConfig       `yaml:"devices"`
+	Agents        AgentsConfig        `yaml:"agents"`
+	Screens       ScreensConfig       `yaml:"screens"`
+	Media         MediaConfig         `yaml:"media"`
+	MediaGateway  MediaGatewayConfig  `yaml:"media_gateway"`
+	DeviceBridge  DeviceBridgeConfig  `yaml:"device_bridge"`
+	Audio         AudioConfig         `yaml:"audio"`
+	Storage       StorageConfig       `yaml:"storage"`
+	Integrations  IntegrationsConfig  `yaml:"integrations"`
+	Automations   AutomationsConfig   `yaml:"automations"`
+	Notifications NotificationsConfig `yaml:"notifications"`
+	Monitoring    MonitoringConfig    `yaml:"monitoring"`
+	Logging       LoggingConfig       `yaml:"logging"`
+	Audit         AuditConfig         `yaml:"audit"`
+	Backups       BackupsConfig       `yaml:"backups"`
+	TypeStart     TypeStartConfig     `yaml:"type_start"`
 }
 
-func fieldByYAMLPath(value reflect.Value, path string) (reflect.Value, error) {
-	for _, part := range strings.Split(path, ".") {
-		for value.Kind() == reflect.Pointer {
-			if value.IsNil() {
-				return reflect.Value{}, fmt.Errorf("%s: nil pointer", path)
-			}
-			value = value.Elem()
-		}
-		if value.Kind() != reflect.Struct {
-			return reflect.Value{}, fmt.Errorf("%s: expected struct", path)
-		}
-		typ := value.Type()
-		found := false
-		for i := 0; i < typ.NumField(); i++ {
-			if strings.Split(typ.Field(i).Tag.Get("yaml"), ",")[0] == part {
-				value = value.Field(i)
-				found = true
-				break
-			}
-		}
-		if !found {
-			return reflect.Value{}, fmt.Errorf("%s: YAML field not defined", path)
-		}
-	}
-	return value, nil
+type HomeConfig struct {
+	ID       string `yaml:"id"`
+	Name     string `yaml:"name"`
+	Timezone string `yaml:"timezone"`
+	Locale   string `yaml:"locale"`
+	Units    string `yaml:"units"`
 }
 
-func validateNumericBounds(c *Config) error {
-	for key, bound := range NumericBounds {
-		field, err := fieldByYAMLPath(reflect.ValueOf(c), key)
-		if err != nil {
-			return err
-		}
-		if field.Kind() != reflect.Int {
-			return fmt.Errorf("%s: expected integer", key)
-		}
-		value := field.Int()
-		if value < bound.Min || value > bound.Max {
-			return fmt.Errorf("%s: %d не входит в диапазон %d..%d", key, value, bound.Min, bound.Max)
-		}
-	}
-	return nil
+type ServerConfig struct {
+	Host                     string                   `yaml:"host"`
+	Port                     int                      `yaml:"port"`
+	WebSocketPath            string                   `yaml:"websocket_path"`
+	ReadHeaderTimeoutSeconds int                      `yaml:"read_header_timeout_seconds"`
+	ShutdownTimeoutSeconds   int                      `yaml:"shutdown_timeout_seconds"`
+	TLS                      ServerTLSConfig          `yaml:"tls"`
+	ReverseProxy             ServerReverseProxyConfig `yaml:"reverse_proxy"`
+}
+
+type ServerTLSConfig struct {
+	Mode     string `yaml:"mode"`
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
+}
+
+type ServerReverseProxyConfig struct {
+	TrustedCIDRs []string `yaml:"trusted_cidrs"`
+}
+
+type WebSocketConfig struct {
+	ProtocolVersion          int      `yaml:"protocol_version"`
+	Encoding                 string   `yaml:"encoding"`
+	AllowedOrigins           []string `yaml:"allowed_origins"`
+	MaxConnections           int      `yaml:"max_connections"`
+	MaxConnectionsPerIP      int      `yaml:"max_connections_per_ip"`
+	MaxMessageBytes          int      `yaml:"max_message_bytes"`
+	MaxMessagesPerSecond     int      `yaml:"max_messages_per_second"`
+	MaxOutboundQueueMessages int      `yaml:"max_outbound_queue_messages"`
+	PingIntervalSeconds      int      `yaml:"ping_interval_seconds"`
+	PongTimeoutSeconds       int      `yaml:"pong_timeout_seconds"`
+	WriteTimeoutSeconds      int      `yaml:"write_timeout_seconds"`
+	HelloTimeoutSeconds      int      `yaml:"hello_timeout_seconds"`
+	CompressionEnabled       bool     `yaml:"compression_enabled"`
+}
+
+type MessageBusConfig struct {
+	RequireMessageID            bool                         `yaml:"require_message_id"`
+	RequireActionNamespace      bool                         `yaml:"require_action_namespace"`
+	RequireSubscription         bool                         `yaml:"require_subscription"`
+	SendInitialSnapshot         bool                         `yaml:"send_initial_snapshot"`
+	PublishStateDeltas          bool                         `yaml:"publish_state_deltas"`
+	CommandAckTimeoutSeconds    int                          `yaml:"command_ack_timeout_seconds"`
+	DeduplicationWindowSeconds  int                          `yaml:"deduplication_window_seconds"`
+	MaxPendingCommandsPerClient int                          `yaml:"max_pending_commands_per_client"`
+	SlowConsumerPolicy          string                       `yaml:"slow_consumer_policy"`
+	EventHistory                MessageBusEventHistoryConfig `yaml:"event_history"`
+}
+
+type MessageBusEventHistoryConfig struct {
+	Enabled       bool `yaml:"enabled"`
+	RetentionDays int  `yaml:"retention_days"`
+}
+
+type SecurityConfig struct {
+	Authorization   SecurityAuthorizationConfig   `yaml:"authorization"`
+	Pairing         SecurityPairingConfig         `yaml:"pairing"`
+	CriticalActions SecurityCriticalActionsConfig `yaml:"critical_actions"`
+	RemoteAccess    SecurityRemoteAccessConfig    `yaml:"remote_access"`
+}
+
+type SecurityAuthorizationConfig struct {
+	DefaultPolicy      string   `yaml:"default_policy"`
+	CheckEveryCommand  bool     `yaml:"check_every_command"`
+	Roles              []string `yaml:"roles"`
+	PermissionsStorage string   `yaml:"permissions_storage"`
+}
+
+type SecurityPairingConfig struct {
+	RequireApproval      bool `yaml:"require_approval"`
+	PairingWindowSeconds int  `yaml:"pairing_window_seconds"`
+	MaxAttempts          int  `yaml:"max_attempts"`
+}
+
+type SecurityCriticalActionsConfig struct {
+	RequireConfirmation        bool     `yaml:"require_confirmation"`
+	ConfirmationTimeoutSeconds int      `yaml:"confirmation_timeout_seconds"`
+	Actions                    []string `yaml:"actions"`
+}
+
+type SecurityRemoteAccessConfig struct {
+	Enabled                 bool `yaml:"enabled"`
+	RequireTLS              bool `yaml:"require_tls"`
+	AutomaticPortForwarding bool `yaml:"automatic_port_forwarding"`
+}
+
+type DBServerConfig struct {
+	Host                         string               `yaml:"host"`
+	Port                         int                  `yaml:"port"`
+	Database                     string               `yaml:"database"`
+	Username                     string               `yaml:"username"`
+	Password                     string               `yaml:"password"`
+	FilePath                     string               `yaml:"file_path"`
+	TLSEnabled                   bool                 `yaml:"tls_enabled"`
+	ConnectionTimeout            int                  `yaml:"connection_timeout"`
+	MaxOpenConnections           int                  `yaml:"max_open_connections"`
+	MaxIdleConnections           int                  `yaml:"max_idle_connections"`
+	ConnectionMaxLifetimeSeconds int                  `yaml:"connection_max_lifetime_seconds"`
+	ConnectionMaxIdleSeconds     int                  `yaml:"connection_max_idle_seconds"`
+	AutoMigrate                  bool                 `yaml:"auto_migrate"`
+	SQLite                       DBServerSQLiteConfig `yaml:"sqlite"`
+}
+
+type DBServerSQLiteConfig struct {
+	JournalMode   string `yaml:"journal_mode"`
+	BusyTimeoutMs int    `yaml:"busy_timeout_ms"`
+	ForeignKeys   bool   `yaml:"foreign_keys"`
+}
+
+type DevicesConfig struct {
+	Enabled                  bool                   `yaml:"enabled"`
+	RequirePairing           bool                   `yaml:"require_pairing"`
+	AutomaticRegistration    bool                   `yaml:"automatic_registration"`
+	HeartbeatIntervalSeconds int                    `yaml:"heartbeat_interval_seconds"`
+	OfflineAfterSeconds      int                    `yaml:"offline_after_seconds"`
+	PreserveLastKnownState   bool                   `yaml:"preserve_last_known_state"`
+	Discovery                DevicesDiscoveryConfig `yaml:"discovery"`
+}
+
+type DevicesDiscoveryConfig struct {
+	MDNSEnabled        bool `yaml:"mdns_enabled"`
+	SSDPEnabled        bool `yaml:"ssdp_enabled"`
+	BluetoothEnabled   bool `yaml:"bluetooth_enabled"`
+	NetworkScanEnabled bool `yaml:"network_scan_enabled"`
+}
+
+type AgentsConfig struct {
+	Enabled                  bool     `yaml:"enabled"`
+	Transport                string   `yaml:"transport"`
+	ApprovalRequired         bool     `yaml:"approval_required"`
+	HeartbeatIntervalSeconds int      `yaml:"heartbeat_interval_seconds"`
+	OfflineAfterSeconds      int      `yaml:"offline_after_seconds"`
+	CollectMetrics           []string `yaml:"collect_metrics"`
+	AllowRemoteShell         bool     `yaml:"allow_remote_shell"`
+	AllowRemoteReboot        bool     `yaml:"allow_remote_reboot"`
+	AllowServiceControl      bool     `yaml:"allow_service_control"`
+}
+
+type ScreensConfig struct {
+	Enabled                      bool     `yaml:"enabled"`
+	AllowRemoteContentPush       bool     `yaml:"allow_remote_content_push"`
+	AllowRemoteURLOpen           bool     `yaml:"allow_remote_url_open"`
+	AllowedURLHosts              []string `yaml:"allowed_url_hosts"`
+	DefaultContentTimeoutSeconds int      `yaml:"default_content_timeout_seconds"`
+}
+
+type MediaConfig struct {
+	Enabled                bool                `yaml:"enabled"`
+	ControlOnly            bool                `yaml:"control_only"`
+	AllowExternalMediaUrls bool                `yaml:"allow_external_media_urls"`
+	AllowedMediaHosts      []string            `yaml:"allowed_media_hosts"`
+	Adapters               MediaAdaptersConfig `yaml:"adapters"`
+}
+
+type MediaAdaptersConfig struct {
+	DlnaEnabled            bool `yaml:"dlna_enabled"`
+	CastEnabled            bool `yaml:"cast_enabled"`
+	AndroidTvEnabled       bool `yaml:"android_tv_enabled"`
+	WebrtcSignalingEnabled bool `yaml:"webrtc_signaling_enabled"`
+}
+
+type AudioConfig struct {
+	Enabled                  bool   `yaml:"enabled"`
+	DefaultVolumePercent     int    `yaml:"default_volume_percent"`
+	MaxVolumePercent         int    `yaml:"max_volume_percent"`
+	MultiroomEnabled         bool   `yaml:"multiroom_enabled"`
+	MultiroomSyncMode        string `yaml:"multiroom_sync_mode"`
+	MicrophoneCaptureEnabled bool   `yaml:"microphone_capture_enabled"`
+}
+
+type StorageConfig struct {
+	Enabled                       bool     `yaml:"enabled"`
+	DataDir                       string   `yaml:"data_dir"`
+	TempDir                       string   `yaml:"temp_dir"`
+	FilesDir                      string   `yaml:"files_dir"`
+	AllowedRoots                  []string `yaml:"allowed_roots"`
+	AllowArbitraryFilesystemPaths bool     `yaml:"allow_arbitrary_filesystem_paths"`
+	MaxUploadSizeMB               int      `yaml:"max_upload_size_mb"`
+	TransferTransport             string   `yaml:"transfer_transport"`
+	WebSocketBinaryFileTransfer   bool     `yaml:"websocket_binary_file_transfer"`
+	ExternalMounts                []string `yaml:"external_mounts"`
+}
+
+type IntegrationsConfig struct {
+	MQTT          IntegrationsMQTTConfig          `yaml:"mqtt"`
+	HomeAssistant IntegrationsHomeAssistantConfig `yaml:"home_assistant"`
+	Plex          IntegrationsPlexConfig          `yaml:"plex"`
+	CUPS          IntegrationsCUPSConfig          `yaml:"cups"`
+}
+
+type IntegrationsMQTTConfig struct {
+	Enabled     bool   `yaml:"enabled"`
+	Host        string `yaml:"host"`
+	Port        int    `yaml:"port"`
+	TLSEnabled  bool   `yaml:"tls_enabled"`
+	ClientID    string `yaml:"client_id"`
+	Username    string `yaml:"username"`
+	Password    string `yaml:"password"`
+	BaseTopic   string `yaml:"base_topic"`
+	QoS         int    `yaml:"qos"`
+	RetainState bool   `yaml:"retain_state"`
+}
+
+type IntegrationsHomeAssistantConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	URL     string `yaml:"url"`
+	Token   string `yaml:"token"`
+}
+
+type IntegrationsPlexConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	URL     string `yaml:"url"`
+	Token   string `yaml:"token"`
+}
+
+type IntegrationsCUPSConfig struct {
+	Enabled         bool   `yaml:"enabled"`
+	URL             string `yaml:"url"`
+	AllowSubmitJobs bool   `yaml:"allow_submit_jobs"`
+}
+
+type AutomationsConfig struct {
+	Enabled                     bool `yaml:"enabled"`
+	MaxConcurrentActions        int  `yaml:"max_concurrent_actions"`
+	DefaultActionTimeoutSeconds int  `yaml:"default_action_timeout_seconds"`
+	PreventDuplicateCommands    bool `yaml:"prevent_duplicate_commands"`
+	AllowCriticalActions        bool `yaml:"allow_critical_actions"`
+	PersistSchedules            bool `yaml:"persist_schedules"`
+}
+
+type NotificationsConfig struct {
+	Enabled                    bool     `yaml:"enabled"`
+	WebSocketEnabled           bool     `yaml:"websocket_enabled"`
+	DeduplicationWindowSeconds int      `yaml:"deduplication_window_seconds"`
+	NotifyOn                   []string `yaml:"notify_on"`
+}
+
+// MonitoringConfig retains legacy YAML fields so existing config.yaml files
+// remain readable. Only Enabled and HealthPath are used for the generic /healthz
+// endpoint; metrics settings are deprecated and no longer initialize telemetry.
+type MonitoringConfig struct {
+	Enabled                bool   `yaml:"enabled"`
+	HealthPath             string `yaml:"health_path"`
+	MetricsEndpointEnabled bool   `yaml:"metrics_endpoint_enabled"`
+	MetricsPath            string `yaml:"metrics_path"`
+	SampleIntervalSeconds  int    `yaml:"sample_interval_seconds"`
+	MetricsRetentionDays   int    `yaml:"metrics_retention_days"`
+}
+
+type LoggingConfig struct {
+	Level              string `yaml:"level"`
+	Format             string `yaml:"format"`
+	Output             string `yaml:"output"`
+	LogMessagePayloads bool   `yaml:"log_message_payloads"`
+	LogSecrets         bool   `yaml:"log_secrets"`
+}
+
+type AuditConfig struct {
+	Enabled              bool `yaml:"enabled"`
+	RetentionDays        int  `yaml:"retention_days"`
+	LogAuthEvents        bool `yaml:"log_auth_events"`
+	LogPermissionChanges bool `yaml:"log_permission_changes"`
+	LogCriticalCommands  bool `yaml:"log_critical_commands"`
+}
+
+type BackupsConfig struct {
+	Enabled              bool   `yaml:"enabled"`
+	DestinationDir       string `yaml:"destination_dir"`
+	Schedule             string `yaml:"schedule"`
+	KeepLast             int    `yaml:"keep_last"`
+	IncludeDatabase      bool   `yaml:"include_database"`
+	IncludeConfiguration bool   `yaml:"include_configuration"`
+	IncludeMediaFiles    bool   `yaml:"include_media_files"`
+	EncryptionEnabled    bool   `yaml:"encryption_enabled"`
+	EncryptionKey        string `yaml:"encryption_key"`
+}
+
+type TypeStartConfig struct {
+	StartByte *uint8 `yaml:"start_byte"`
+	DBByte    *uint8 `yaml:"db_byte"`
+}
+
+
+// DeviceBridgeConfig exposes a dedicated loopback-only WebSocket endpoint.
+// Process execution settings will be added with the Bridge executable contract.
+type DeviceBridgeConfig struct {
+	Enabled     bool   `yaml:"enabled"`
+	BindAddress string `yaml:"bind_address"`
+	Executable string `yaml:"executable"`
+	WorkingDir string `yaml:"working_dir"`
+	ConfigPath string `yaml:"config_path"`
+	StartupTimeoutSeconds int `yaml:"startup_timeout_seconds"`
+	ShutdownTimeoutSeconds int `yaml:"shutdown_timeout_seconds"`
+	HeartbeatTimeoutSeconds int `yaml:"heartbeat_timeout_seconds"`
+	InitialBackoffSeconds int `yaml:"initial_backoff_seconds"`
+	MaxBackoffSeconds int `yaml:"max_backoff_seconds"`
 }
