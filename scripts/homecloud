@@ -5,6 +5,7 @@ OWNER="DaniilGavrin"
 BACKEND_REPO="HomeCloudBackend"
 GATEWAY_REPO="HomeCloud-Media-Gateway"
 STORAGE_REPO="HomeCloud-Storage-Service"
+DEVICE_BRIDGE_REPO="HomeCloudDeviceBridge"
 
 HOME_ROOT="/root/homecloud"
 BIN_DIR="$HOME_ROOT/bin"
@@ -15,9 +16,12 @@ STORAGE_CONFIG="$HOME_ROOT/storage-service.json"
 BACKEND_BIN="$BIN_DIR/HomeCloudBackend-linux-amd64"
 GATEWAY_BIN="$BIN_DIR/HomeCloudMediaGateway-linux-amd64"
 STORAGE_BIN="$BIN_DIR/hc-storage-service-linux-amd64"
+DEVICE_BRIDGE_BIN="$BIN_DIR/HomeCloudDeviceBridge-linux-amd64"
 
 BACKEND_SERVICE="homecloud-backend.service"
 STORAGE_SERVICE="homecloud-storage.service"
+DEVICE_BRIDGE_SERVICE="homecloud-device-bridge.service"
+DEVICE_BRIDGE_HEALTH="http://127.0.0.1:8094/healthz"
 GATEWAY_HEALTH="http://127.0.0.1:8091/healthz"
 BACKUP_ROOT="$HOME_ROOT/backups/updater"
 
@@ -149,6 +153,21 @@ wait_service_active() {
   return 1
 }
 
+wait_device_bridge_health() {
+  local i
+  for i in $(seq 1 20); do
+    if curl --fail --silent --max-time 2 "$DEVICE_BRIDGE_HEALTH" | python3 -c '
+import json,sys
+try:
+ d=json.load(sys.stdin)
+ sys.exit(0 if d.get("status")=="ok" and d.get("implementation")=="stub" else 1)
+except Exception: sys.exit(1)
+'; then return 0; fi
+    sleep 1
+  done
+  return 1
+}
+
 wait_gateway_health() {
   local i
   for i in $(seq 1 30); do
@@ -180,6 +199,7 @@ update_one() {
   esac
 
   [[ -x "$target" ]] || die "Не найден текущий бинарник: $target"
+  systemctl cat "$service" >/dev/null 2>&1 || die "Не найдена служба $service"
 
   # A matching digest removes this transient staging file and exits before
   # creating a backup, replacing a binary, or touching any systemd service.
@@ -228,6 +248,17 @@ update_one() {
     die "Health check systemd не пройден; бинарник восстановлен."
   fi
 
+  if [[ "$component" == "device-bridge" || "$component" == "bridge" ]]; then
+    if ! wait_device_bridge_health; then
+      log "Device Bridge не прошёл /healthz; выполняю откат."
+      systemctl stop "$DEVICE_BRIDGE_SERVICE" || true
+      install -m 0755 "$backup" "$target"
+      systemctl start "$DEVICE_BRIDGE_SERVICE" || true
+      wait_device_bridge_health || true
+      die "Device Bridge не прошёл health check; предыдущий бинарник восстановлен."
+    fi
+  fi
+
   if [[ "$component" == "media" || "$component" == "gateway" ]]; then
     if ! wait_gateway_health; then
       log "Gateway не прошёл /healthz; выполняю откат."
@@ -243,7 +274,7 @@ update_one() {
 
 show_version() {
   local binary
-  for binary in "$BACKEND_BIN" "$GATEWAY_BIN" "$STORAGE_BIN"; do
+  for binary in "$BACKEND_BIN" "$GATEWAY_BIN" "$STORAGE_BIN" "$DEVICE_BRIDGE_BIN"; do
     if [[ -f "$binary" ]]; then
       printf '%s  ' "$binary"
       sha256sum "$binary" | awk '{print $1}'
@@ -262,6 +293,7 @@ Usage:
   homecloud update backend        Update Backend
   homecloud update media          Update Media Gateway
   homecloud update storage        Update Storage Service
+  homecloud update device-bridge  Update Device Bridge
   homecloud version               Show installed binary information
   homecloud status                Show local systemd status
 EOF
@@ -295,14 +327,21 @@ main() {
               return "$storage_rc"
             fi
           fi
+          # Device Bridge is optional on older installations. Update it only
+          # when its binary and systemd unit are already installed.
+          if [[ -x "$DEVICE_BRIDGE_BIN" ]] && systemctl cat "$DEVICE_BRIDGE_SERVICE" >/dev/null 2>&1; then
+            update_one device-bridge
+          else
+            log "Device Bridge пропущен: бинарник или systemd-служба ещё не установлены."
+          fi
           ;;
-        backend|media|gateway|storage) update_one "$2" ;;
+        backend|media|gateway|storage|device-bridge|bridge) update_one "$2" ;;
         *) usage; exit 2 ;;
       esac
       ;;
     version) show_version ;;
     status)
-      systemctl --no-pager --full status "$BACKEND_SERVICE" "$STORAGE_SERVICE" || true
+      systemctl --no-pager --full status "$BACKEND_SERVICE" "$STORAGE_SERVICE" "$DEVICE_BRIDGE_SERVICE" || true
       ;;
     -h|--help|"") usage ;;
     *) usage; exit 2 ;;
