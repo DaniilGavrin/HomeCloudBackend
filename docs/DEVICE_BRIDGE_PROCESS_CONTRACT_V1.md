@@ -6,7 +6,7 @@ The Backend starts Device Bridge as a child process when `device_bridge.enabled`
 
 The Backend provides:
 
-- `HOMECLOUD_BACKEND_WS_URL`: local WebSocket endpoint, for example `ws://127.0.0.1:8094/ws`.
+- `HOMECLOUD_BACKEND_WS_URL`: local WebSocket endpoint, for example `ws://127.0.0.1:8095/ws`.
 - `HOMECLOUD_DEVICE_BRIDGE_CONFIG`: absolute path to the Bridge configuration file.
 - `HOMECLOUD_DEVICE_BRIDGE_SUPERVISED=1`: process is managed by Backend.
 
