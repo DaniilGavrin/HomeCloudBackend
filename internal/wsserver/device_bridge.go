@@ -47,7 +47,7 @@ func (s *Server) registerDeviceBridgeCommands() {
 		return map[string]any{"alive": true}, nil
 	})
 	s.registry.MustRegister("device.bridge.status", func(_ context.Context, _ commands.Inbound, client commands.ClientContext) (any, error) {
-		if client.ClientType != "panel" && client.ClientType != "mobile" && client.ClientType != "web" {
+		if client.DeviceID == deviceBridgePeerID || client.ClientType == deviceBridgeClientType {
 			return nil, errors.New("forbidden")
 		}
 		return s.deviceBridge.Snapshot(), nil
