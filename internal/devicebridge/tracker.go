@@ -75,6 +75,15 @@ func (t *Tracker) Disconnect(sessionID int64, reason string) {
 	t.status.SessionID = 0
 }
 
+func (t *Tracker) Unavailable(reason string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := time.Now().UTC()
+	t.status.State, t.status.Connected, t.status.Ready = StatusUnavailable, false, false
+	t.status.SessionID = 0
+	t.status.UpdatedAt, t.status.Reason = now, reason
+}
+
 func (t *Tracker) Snapshot() Status {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
