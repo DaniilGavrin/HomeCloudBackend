@@ -18,6 +18,7 @@ import (
 	"HomeCloudBackend/internal/cluster/registry"
 	clusterruntime "HomeCloudBackend/internal/cluster/runtime"
 	"HomeCloudBackend/internal/database"
+	"HomeCloudBackend/internal/devicebridgesupervisor"
 	"HomeCloudBackend/internal/mediacompanion"
 	"HomeCloudBackend/internal/netbind"
 	"HomeCloudBackend/internal/storage"
@@ -240,6 +241,12 @@ func run() error {
 			}
 			serverDone <- e
 		}()
+	}
+	var bridgeSupervisor *devicebridgesupervisor.Supervisor
+	if cfg.DeviceBridge.Enabled {
+		wsURL := "ws://" + cfg.DeviceBridge.BindAddress + cfg.Server.WebSocketPath
+		bridgeSupervisor = devicebridgesupervisor.Start(ctx, cfg.DeviceBridge, root, wsURL, ws.DeviceBridgeTracker(), logger)
+		defer bridgeSupervisor.Stop()
 	}
 	mediaSupervisor := mediacompanion.Start(ctx, cfg.MediaGateway, root, logger)
 	defer mediaSupervisor.Stop()
