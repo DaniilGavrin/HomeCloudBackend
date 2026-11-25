@@ -64,26 +64,37 @@ import json, sys
 path, wanted = sys.argv[1:]
 with open(path, encoding="utf-8") as f:
     releases = json.load(f)
+# GitHub's releases collection is not guaranteed to arrive in the
+# chronological order expected by the updater. Select by publication time,
+# not by the first matching item in the API response.
+candidates = []
 for release in releases:
     if release.get("draft"):
         continue
     for asset in release.get("assets", []):
-        if asset.get("name") == wanted and asset.get("state") == "uploaded":
-            digest = asset.get("digest") or ""
-            if not digest.startswith("sha256:"):
-                digest = ""
-                for line in (release.get("body") or "").splitlines():
-                    fields = line.strip().split()
-                    if len(fields) == 2 and fields[1] == wanted and len(fields[0]) == 64:
-                        digest = "sha256:" + fields[0].lower()
-                        break
-            if not digest:
-                sys.exit(3)
-            print(asset["browser_download_url"])
-            print(digest.removeprefix("sha256:"))
-            print(release.get("tag_name", "unknown"))
-            sys.exit(0)
-sys.exit(2)
+        if asset.get("name") != wanted or asset.get("state") != "uploaded":
+            continue
+        digest = asset.get("digest") or ""
+        if not digest.startswith("sha256:"):
+            digest = ""
+            for line in (release.get("body") or "").splitlines():
+                fields = line.strip().split()
+                if len(fields) == 2 and fields[1] == wanted and len(fields[0]) == 64:
+                    digest = "sha256:" + fields[0].lower()
+                    break
+        published = release.get("published_at") or release.get("created_at") or ""
+        candidates.append((published, release, asset, digest))
+
+if not candidates:
+    sys.exit(2)
+
+_, release, asset, digest = max(candidates, key=lambda item: item[0])
+if not digest:
+    sys.exit(3)
+
+print(asset["browser_download_url"])
+print(digest.removeprefix("sha256:"))
+print(release.get("tag_name", "unknown"))
 PY
   local rc=$?
   rm -f "$json"
