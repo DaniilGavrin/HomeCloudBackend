@@ -175,6 +175,22 @@ func run() error {
 		listener net.Listener
 	}
 	var active []activeServer
+	if cfg.DeviceBridge.Enabled {
+		listener, listenErr := net.Listen("tcp", cfg.DeviceBridge.BindAddress)
+		if listenErr != nil {
+			return fmt.Errorf("device bridge loopback listen %s: %w", cfg.DeviceBridge.BindAddress, listenErr)
+		}
+		active = append(active, activeServer{
+			listener: listener,
+			server: &http.Server{
+				Handler:           mux,
+				ReadHeaderTimeout: time.Duration(cfg.Server.ReadHeaderTimeoutSeconds) * time.Second,
+				MaxHeaderBytes:    16 << 10,
+			},
+		})
+		logger.Info("Device Bridge loopback WebSocket endpoint ready",
+			"address", cfg.DeviceBridge.BindAddress, "path", cfg.Server.WebSocketPath)
+	}
 	for _, ep := range endpoints {
 		listener, listenErr := net.Listen("tcp", ep.Address)
 		if listenErr != nil {
