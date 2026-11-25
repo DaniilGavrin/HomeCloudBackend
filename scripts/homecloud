@@ -20,7 +20,6 @@ DEVICE_BRIDGE_BIN="$BIN_DIR/HomeCloudDeviceBridge-linux-amd64"
 
 BACKEND_SERVICE="homecloud-backend.service"
 STORAGE_SERVICE="homecloud-storage.service"
-DEVICE_BRIDGE_SERVICE="homecloud-device-bridge.service"
 DEVICE_BRIDGE_HEALTH="http://127.0.0.1:8094/healthz"
 GATEWAY_HEALTH="http://127.0.0.1:8091/healthz"
 BACKUP_ROOT="$HOME_ROOT/backups/updater"
@@ -208,12 +207,16 @@ update_one() {
       target="$STORAGE_BIN"; service="$STORAGE_SERVICE" ;;
     device-bridge|bridge)
       repo="$DEVICE_BRIDGE_REPO"; asset="HomeCloudDeviceBridge-linux-amd64"
-      target="$DEVICE_BRIDGE_BIN"; service="$DEVICE_BRIDGE_SERVICE" ;;
+      target="$DEVICE_BRIDGE_BIN"; service="$BACKEND_SERVICE" ;;
     *) die "Неизвестный компонент: $component" ;;
   esac
 
-  [[ -x "$target" ]] || die "Не найден текущий бинарник: $target"
-  systemctl cat "$service" >/dev/null 2>&1 || die "Не найдена служба $service"
+  if [[ "$component" == "device-bridge" || "$component" == "bridge" ]]; then
+    systemctl cat "$BACKEND_SERVICE" >/dev/null 2>&1 || die "Не найдена служба $BACKEND_SERVICE"
+  else
+    [[ -x "$target" ]] || die "Не найден текущий бинарник: $target"
+    systemctl cat "$service" >/dev/null 2>&1 || die "Не найдена служба $service"
+  fi
 
   # A matching digest removes this transient staging file and exits before
   # creating a backup, replacing a binary, or touching any systemd service.
@@ -230,28 +233,40 @@ update_one() {
     return "$download_rc"
   fi
 
-  backup_dir="$BACKUP_ROOT/$(date -u +%Y%m%dT%H%M%SZ)"
-  mkdir -p "$backup_dir"
-  chmod 0700 "$backup_dir"
-  backup="$backup_dir/$(basename "$target")"
-  install -m 0755 "$target" "$backup"
-  log "Резервная копия: $backup"
+  backup=""
+  if [[ -f "$target" ]]; then
+    backup_dir="$BACKUP_ROOT/$(date -u +%Y%m%dT%H%M%SZ)"
+    mkdir -p "$backup_dir"
+    chmod 0700 "$backup_dir"
+    backup="$backup_dir/$(basename "$target")"
+    install -m 0755 "$target" "$backup"
+    log "Резервная копия: $backup"
+  else
+    log "Устанавливаю Device Bridge впервые; предыдущего бинарника нет."
+  fi
 
   if ! systemctl stop "$service"; then rm -f "$temp"; die "Не удалось остановить $service"; fi
-  if ! install -m 0755 "$temp" "$target"; then
-    install -m 0755 "$backup" "$target"
+  if ! mv -f -- "$temp" "$target"; then
+    if [[ -n "$backup" ]]; then
+      install -m 0755 "$backup" "$target"
+    else
+      rm -f -- "$target"
+    fi
     systemctl start "$service" || true
     rm -f "$temp"
     die "Не удалось установить новый бинарник; выполнен откат."
   fi
-  rm -f "$temp"
 
   if ! systemctl start "$service"; then
-    log "Запуск службы не удался; возвращаю предыдущий бинарник."
+    log "Запуск службы не удался; выполняю откат бинарника."
     systemctl stop "$service" || true
-    install -m 0755 "$backup" "$target"
+    if [[ -n "$backup" ]]; then
+      install -m 0755 "$backup" "$target"
+    else
+      rm -f -- "$target"
+    fi
     systemctl start "$service" || true
-    die "Обновление $component отменено, восстановлена предыдущая версия."
+    die "Обновление $component отменено; выполнен откат."
   fi
 
   if ! wait_service_active "$service"; then
@@ -263,14 +278,8 @@ update_one() {
   fi
 
   if [[ "$component" == "device-bridge" || "$component" == "bridge" ]]; then
-    if ! wait_device_bridge_health; then
-      log "Device Bridge не прошёл /healthz; выполняю откат."
-      systemctl stop "$DEVICE_BRIDGE_SERVICE" || true
-      install -m 0755 "$backup" "$target"
-      systemctl start "$DEVICE_BRIDGE_SERVICE" || true
-      wait_device_bridge_health || true
-      die "Device Bridge не прошёл health check; предыдущий бинарник восстановлен."
-    fi
+    log "Device Bridge binary установлен; отдельная systemd-служба и независимый health check не используются."
+    log "Фактическая готовность Bridge определяется Backend по WS-регистрации и heartbeat."
   fi
 
   if [[ "$component" == "media" || "$component" == "gateway" ]]; then
@@ -341,12 +350,18 @@ main() {
               return "$storage_rc"
             fi
           fi
-          # Device Bridge is optional on older installations. Update it only
-          # when its binary and systemd unit are already installed.
-          if [[ -x "$DEVICE_BRIDGE_BIN" ]] && systemctl cat "$DEVICE_BRIDGE_SERVICE" >/dev/null 2>&1; then
+          # Device Bridge is a Backend-supervised child process. Install it
+          # on first run and update it thereafter; no standalone unit exists.
+          local bridge_rc=0
+          if release_asset "$DEVICE_BRIDGE_REPO" "HomeCloudDeviceBridge-linux-amd64" >/dev/null; then
             update_one device-bridge
           else
-            log "Device Bridge пропущен: бинарник или systemd-служба ещё не установлены."
+            bridge_rc=$?
+            if [[ "$bridge_rc" -eq 2 ]]; then
+              log "Device Bridge пропущен: в его репозитории пока нет опубликованного релиза."
+            else
+              return "$bridge_rc"
+            fi
           fi
           ;;
         backend|media|gateway|storage|device-bridge|bridge) update_one "$2" ;;
@@ -355,7 +370,7 @@ main() {
       ;;
     version) show_version ;;
     status)
-      systemctl --no-pager --full status "$BACKEND_SERVICE" "$STORAGE_SERVICE" "$DEVICE_BRIDGE_SERVICE" || true
+      systemctl --no-pager --full status "$BACKEND_SERVICE" "$STORAGE_SERVICE" || true
       ;;
     -h|--help|"") usage ;;
     *) usage; exit 2 ;;
