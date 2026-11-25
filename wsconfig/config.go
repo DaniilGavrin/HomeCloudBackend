@@ -106,5 +106,8 @@ func LoadAt(root string) (*Config, error) {
 	if err := cfg.MediaGateway.Validate(); err != nil {
 		return nil, fmt.Errorf("media_gateway: %w", err)
 	}
+	if err := cfg.DeviceBridge.Validate(); err != nil {
+		return nil, fmt.Errorf("device_bridge: %w", err)
+	}
 	return &cfg, nil
 }
