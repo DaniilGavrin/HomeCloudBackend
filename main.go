@@ -18,6 +18,7 @@ import (
 	"HomeCloudBackend/internal/cluster/registry"
 	clusterruntime "HomeCloudBackend/internal/cluster/runtime"
 	"HomeCloudBackend/internal/database"
+	"HomeCloudBackend/internal/devicebridgesupervisor"
 	"HomeCloudBackend/internal/mediacompanion"
 	"HomeCloudBackend/internal/netbind"
 	"HomeCloudBackend/internal/storage"
@@ -173,8 +174,25 @@ func run() error {
 	type activeServer struct {
 		server   *http.Server
 		listener net.Listener
+		tls      bool
 	}
 	var active []activeServer
+	if cfg.DeviceBridge.Enabled {
+		listener, listenErr := net.Listen("tcp", cfg.DeviceBridge.BindAddress)
+		if listenErr != nil {
+			return fmt.Errorf("device bridge loopback listen %s: %w", cfg.DeviceBridge.BindAddress, listenErr)
+		}
+		active = append(active, activeServer{
+			listener: listener,
+			server: &http.Server{
+				Handler:           mux,
+				ReadHeaderTimeout: time.Duration(cfg.Server.ReadHeaderTimeoutSeconds) * time.Second,
+				MaxHeaderBytes:    16 << 10,
+			},
+		})
+		logger.Info("Device Bridge loopback WebSocket endpoint ready",
+			"address", cfg.DeviceBridge.BindAddress, "path", cfg.Server.WebSocketPath)
+	}
 	for _, ep := range endpoints {
 		listener, listenErr := net.Listen("tcp", ep.Address)
 		if listenErr != nil {
@@ -185,6 +203,7 @@ func run() error {
 		}
 		active = append(active, activeServer{
 			listener: listener,
+			tls:      cfg.Server.TLS.Mode == "native",
 			server: &http.Server{
 				Handler:           netbind.RestrictPeer(ep, mux),
 				ReadHeaderTimeout: time.Duration(cfg.Server.ReadHeaderTimeoutSeconds) * time.Second,
@@ -208,7 +227,7 @@ func run() error {
 		a := a
 		go func() {
 			var e error
-			if cfg.Server.TLS.Mode == "native" {
+			if a.tls {
 				cert, key := cfg.Server.TLS.CertFile, cfg.Server.TLS.KeyFile
 				if !filepath.IsAbs(cert) {
 					cert = filepath.Join(root, cert)
@@ -222,6 +241,12 @@ func run() error {
 			}
 			serverDone <- e
 		}()
+	}
+	var bridgeSupervisor *devicebridgesupervisor.Supervisor
+	if cfg.DeviceBridge.Enabled {
+		wsURL := "ws://" + cfg.DeviceBridge.BindAddress + cfg.Server.WebSocketPath
+		bridgeSupervisor = devicebridgesupervisor.Start(ctx, cfg.DeviceBridge, root, wsURL, ws.DeviceBridgeTracker(), logger)
+		defer bridgeSupervisor.Stop()
 	}
 	mediaSupervisor := mediacompanion.Start(ctx, cfg.MediaGateway, root, logger)
 	defer mediaSupervisor.Stop()

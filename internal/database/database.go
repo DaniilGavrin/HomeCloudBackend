@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"HomeCloudBackend/internal/cluster/registry"
+	"HomeCloudBackend/internal/physicaldevices"
 	"HomeCloudBackend/wsconfig"
 	_ "modernc.org/sqlite"
 )
@@ -121,7 +122,10 @@ func Init(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("инициализация БД: %w", err)
 		}
 	}
-	return registry.Migrate(ctx, db)
+	if err := registry.Migrate(ctx, db); err != nil {
+		return err
+	}
+	return physicaldevices.Migrate(ctx, db)
 }
 
 func Verify(ctx context.Context, db *sql.DB) error {
@@ -134,6 +138,9 @@ func Verify(ctx context.Context, db *sql.DB) error {
 	}
 	if err := db.QueryRowContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name='hc_devices'").Scan(&name); err != nil {
 		return errors.New("таблица hc_devices отсутствует: сначала выполните go run . init-db")
+	}
+	if err := physicaldevices.VerifySchema(ctx, db); err != nil {
+		return err
 	}
 	return nil
 }
