@@ -39,7 +39,7 @@ type SQLiteHistory struct {
 
 func InitSQLiteSchema(ctx context.Context, db *sql.DB) error {
 	const schema = `
-CREATE TABLE IF NOT EXISTS hc_metric_samples (
+CREATE TABLE IF NOT EXISTS hc_telemetry_samples (
  node_id TEXT NOT NULL,
  metric TEXT NOT NULL,
  labels_json TEXT NOT NULL,
@@ -52,10 +52,10 @@ CREATE TABLE IF NOT EXISTS hc_metric_samples (
  unit TEXT NOT NULL DEFAULT '',
  PRIMARY KEY(node_id, metric, labels_json, resolution_ms, timestamp_ms)
 );
-CREATE INDEX IF NOT EXISTS idx_hc_metric_samples_range
- ON hc_metric_samples(node_id, metric, resolution_ms, timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_hc_metric_samples_retention
- ON hc_metric_samples(resolution_ms, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_hc_telemetry_samples_range
+ ON hc_telemetry_samples(node_id, metric, resolution_ms, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_hc_telemetry_samples_retention
+ ON hc_telemetry_samples(resolution_ms, timestamp_ms);
 `
 	for _, statement := range strings.Split(schema, ";") {
 		if strings.TrimSpace(statement) == "" {
@@ -159,7 +159,7 @@ func (h *SQLiteHistory) Query(ctx context.Context, q Query) ([]Point, error) {
 
 	rows, err := h.db.QueryContext(ctx, `
 SELECT node_id, metric, labels_json, timestamp_ms, value, min_value, max_value, sample_count, unit
-FROM hc_metric_samples
+FROM hc_telemetry_samples
 WHERE node_id = ? AND metric = ? AND resolution_ms = ?
   AND timestamp_ms >= ? AND timestamp_ms < ?
 ORDER BY timestamp_ms ASC
@@ -281,7 +281,7 @@ func (h *SQLiteHistory) writeBatch(ctx context.Context, samples []Sample) error 
 		return err
 	}
 	stmt, err := tx.PrepareContext(ctx, `
-INSERT INTO hc_metric_samples
+INSERT INTO hc_telemetry_samples
 (node_id,metric,labels_json,resolution_ms,timestamp_ms,value,min_value,max_value,sample_count,unit)
 VALUES(?,?,?,?,?,?,?,?,1,?)
 ON CONFLICT(node_id,metric,labels_json,resolution_ms,timestamp_ms)
@@ -318,10 +318,10 @@ func (h *SQLiteHistory) compact(ctx context.Context, now time.Time) error {
 	tenEnd := nowMS / tenResolution * tenResolution
 	tenStart := tenEnd - tenResolution
 	_, err = tx.ExecContext(ctx, `
-INSERT OR REPLACE INTO hc_metric_samples
+INSERT OR REPLACE INTO hc_telemetry_samples
 (node_id,metric,labels_json,resolution_ms,timestamp_ms,value,min_value,max_value,sample_count,unit)
 SELECT node_id,metric,labels_json,?, ?, AVG(value),MIN(min_value),MAX(max_value),SUM(sample_count),unit
-FROM hc_metric_samples
+FROM hc_telemetry_samples
 WHERE resolution_ms=? AND timestamp_ms>=? AND timestamp_ms<?
 GROUP BY node_id,metric,labels_json,unit`, tenResolution, tenStart, rawResolution, tenStart, tenEnd)
 	if err != nil {
@@ -334,11 +334,11 @@ GROUP BY node_id,metric,labels_json,unit`, tenResolution, tenStart, rawResolutio
 	minEnd := nowMS / minResolution * minResolution
 	minStart := minEnd - minResolution
 	_, err = tx.ExecContext(ctx, `
-INSERT OR REPLACE INTO hc_metric_samples
+INSERT OR REPLACE INTO hc_telemetry_samples
 (node_id,metric,labels_json,resolution_ms,timestamp_ms,value,min_value,max_value,sample_count,unit)
 SELECT node_id,metric,labels_json,?, ?, SUM(value*sample_count)/MAX(SUM(sample_count),1),
  MIN(min_value),MAX(max_value),SUM(sample_count),unit
-FROM hc_metric_samples
+FROM hc_telemetry_samples
 WHERE resolution_ms=? AND timestamp_ms>=? AND timestamp_ms<?
 GROUP BY node_id,metric,labels_json,unit`, minResolution, minStart, tenResolution, minStart, minEnd)
 	if err != nil {
@@ -356,7 +356,7 @@ func (h *SQLiteHistory) prune(ctx context.Context, now time.Time) error {
 	}
 	nowMS := now.UnixMilli()
 	_, err = tx.ExecContext(ctx, `
-DELETE FROM hc_metric_samples
+DELETE FROM hc_telemetry_samples
 WHERE (resolution_ms=? AND timestamp_ms<?)
    OR (resolution_ms=? AND timestamp_ms<?)
    OR (resolution_ms=? AND timestamp_ms<?)`,
