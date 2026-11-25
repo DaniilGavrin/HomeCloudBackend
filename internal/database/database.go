@@ -146,8 +146,8 @@ func Verify(ctx context.Context, db *sql.DB) error {
 	if err := physicaldevices.VerifySchema(ctx, db); err != nil {
 		return err
 	}
-	if err := db.QueryRowContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name='hc_metric_samples'").Scan(&name); err != nil {
-		return errors.New("таблица hc_metric_samples отсутствует: сначала выполните go run . init-db для миграции истории метрик")
+	if err := db.QueryRowContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name='hc_telemetry_samples'").Scan(&name); err != nil {
+		return errors.New("таблица hc_telemetry_samples отсутствует: сначала выполните go run . init-db для миграции истории метрик")
 	}
 	return nil
 }
