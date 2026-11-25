@@ -326,6 +326,21 @@ media_gateway:
   max_restarts: 3
   restart_backoff_seconds: 3
 
+# ------------------------------------------------------------
+# Device Bridge: отдельный локальный управляющий endpoint
+# ------------------------------------------------------------
+device_bridge:
+  enabled: false
+  bind_address: "127.0.0.1:8095"
+  executable: "../HomeCloudDeviceBridge/homecloud-device-bridge"
+  working_dir: "../HomeCloudDeviceBridge"
+  config_path: "config/config.yaml"
+  startup_timeout_seconds: 30
+  shutdown_timeout_seconds: 10
+  heartbeat_timeout_seconds: 90
+  initial_backoff_seconds: 2
+  max_backoff_seconds: 60
+
 # START CONFIGURATION — обязательно в конце файла
 # ============================================================
 type_start:
