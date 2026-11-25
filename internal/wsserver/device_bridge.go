@@ -26,7 +26,7 @@ type bridgeRegistration struct {
 
 func (s *Server) registerDeviceBridgeCommands() {
 	s.registry.MustRegister("device.bridge.register", func(_ context.Context, msg commands.Inbound, client commands.ClientContext) (any, error) {
-		if err := validateDeviceBridgePeer(client); err != nil { return nil, err }
+		if err := s.validateDeviceBridgePeer(client); err != nil { return nil, err }
 		var payload bridgeRegistration
 		dec := json.NewDecoder(bytes.NewReader(msg.Data))
 		dec.DisallowUnknownFields()
@@ -44,14 +44,14 @@ func (s *Server) registerDeviceBridgeCommands() {
 		return map[string]any{"accepted": true, "state": devicebridge.StatusRegistered, "contracts_version": deviceContractsV1}, nil
 	})
 	s.registry.MustRegister("device.bridge.ready", func(_ context.Context, _ commands.Inbound, client commands.ClientContext) (any, error) {
-		if err := validateDeviceBridgePeer(client); err != nil { return nil, err }
+		if err := s.validateDeviceBridgePeer(client); err != nil { return nil, err }
 		if err := s.deviceBridge.Ready(client.SessionID); err != nil { return nil, err }
 		_, _ = s.PublishEvent(context.Background(), "device.bridge.status", s.deviceBridge.Snapshot())
 		s.log.Info("Device Bridge ready")
 		return map[string]any{"ready": true}, nil
 	})
 	s.registry.MustRegister("device.bridge.heartbeat", func(_ context.Context, _ commands.Inbound, client commands.ClientContext) (any, error) {
-		if err := validateDeviceBridgePeer(client); err != nil { return nil, err }
+		if err := s.validateDeviceBridgePeer(client); err != nil { return nil, err }
 		if err := s.deviceBridge.Heartbeat(client.SessionID); err != nil { return nil, errors.New("bridge_not_ready") }
 		return map[string]any{"alive": true}, nil
 	})
@@ -66,7 +66,7 @@ func (s *Server) registerDeviceBridgeCommands() {
 	})
 }
 
-func validateDeviceBridgePeer(client commands.ClientContext) error {
+func (s *Server) validateDeviceBridgePeer(client commands.ClientContext) error {
 	if !s.cfg.DeviceBridge.Enabled || client.DeviceID != deviceBridgePeerID || client.ClientType != deviceBridgeClientType {
 		return errors.New("forbidden")
 	}
