@@ -15,7 +15,7 @@ Netdata, Prometheus, or a separate monitoring daemon.
 
 ## SQLite history
 
-The `hc_metric_samples` table stores three resolutions:
+The `hc_telemetry_samples` table stores three resolutions:
 
 | Resolution | Retention | Purpose |
 | --- | --- | --- |
