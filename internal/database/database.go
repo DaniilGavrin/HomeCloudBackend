@@ -12,6 +12,7 @@ import (
 
 	"HomeCloudBackend/internal/cluster/registry"
 	"HomeCloudBackend/internal/physicaldevices"
+	"HomeCloudBackend/internal/telemetry"
 	"HomeCloudBackend/wsconfig"
 	_ "modernc.org/sqlite"
 )
@@ -125,7 +126,10 @@ func Init(ctx context.Context, db *sql.DB) error {
 	if err := registry.Migrate(ctx, db); err != nil {
 		return err
 	}
-	return physicaldevices.Migrate(ctx, db)
+	if err := physicaldevices.Migrate(ctx, db); err != nil {
+		return err
+	}
+	return telemetry.InitSQLiteSchema(ctx, db)
 }
 
 func Verify(ctx context.Context, db *sql.DB) error {
@@ -141,6 +145,9 @@ func Verify(ctx context.Context, db *sql.DB) error {
 	}
 	if err := physicaldevices.VerifySchema(ctx, db); err != nil {
 		return err
+	}
+	if err := db.QueryRowContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name='hc_telemetry_samples'").Scan(&name); err != nil {
+		return errors.New("таблица hc_telemetry_samples отсутствует: сначала выполните go run . init-db для миграции истории метрик")
 	}
 	return nil
 }

@@ -22,6 +22,7 @@ import (
 	"HomeCloudBackend/internal/mediacompanion"
 	"HomeCloudBackend/internal/netbind"
 	"HomeCloudBackend/internal/storage"
+	"HomeCloudBackend/internal/telemetry"
 	"HomeCloudBackend/internal/wsserver"
 	"HomeCloudBackend/wsconfig"
 )
@@ -139,6 +140,51 @@ func run() error {
 	}
 	ws := wsserver.New(cfg, db, logger, storageManager)
 	ws.SetLocalNodeID(nodeIdentity.NodeID)
+
+	var telemetryCore *telemetry.Core
+	if cfg.Monitoring.Enabled {
+		retentionDays := cfg.Monitoring.MetricsRetentionDays
+		if retentionDays <= 0 {
+			retentionDays = 14
+		}
+		history, historyErr := telemetry.NewSQLiteHistoryWithRetention(
+			db, 256, time.Hour, 24*time.Hour, time.Duration(retentionDays)*24*time.Hour,
+		)
+		if historyErr != nil {
+			return fmt.Errorf("telemetry history initialization: %w", historyErr)
+		}
+		telemetryCore, err = telemetry.NewCore(nodeIdentity.NodeID, history)
+		if err != nil {
+			_ = history.Close()
+			return fmt.Errorf("telemetry core initialization: %w", err)
+		}
+		sampleInterval := time.Duration(cfg.Monitoring.SampleIntervalSeconds) * time.Second
+		if err := telemetry.RegisterHostCollectors(telemetryCore, sampleInterval); err != nil {
+			_ = telemetryCore.Close()
+			return fmt.Errorf("host telemetry collector registration: %w", err)
+		}
+		if err := telemetryCore.Register(telemetry.NewServiceCollector(ws.ServiceAvailability)); err != nil {
+			_ = telemetryCore.Close()
+			return fmt.Errorf("service telemetry collector registration: %w", err)
+		}
+		logger.Info("host telemetry collectors registered",
+			"sample_interval_seconds", sampleInterval.Seconds(),
+			"collectors", []string{"cpu", "cpu_frequency", "memory", "network", "network_kernel", "network_connections", "disk", "disk_kernel", "disk_inventory", "processes", "sensors", "fans", "gpu", "pressure", "linux_kernel", "smart", "backend", "host", "services"})
+		if err := ws.SetTelemetryCore(telemetryCore); err != nil {
+			_ = telemetryCore.Close()
+			return fmt.Errorf("telemetry command registration: %w", err)
+		}
+		if err := telemetryCore.Start(ctx); err != nil {
+			_ = telemetryCore.Close()
+			return fmt.Errorf("telemetry core startup: %w", err)
+		}
+		defer func() {
+			if err := telemetryCore.Close(); err != nil {
+				logger.Error("telemetry shutdown failed", "error", err)
+			}
+		}()
+	}
+
 
 	mux := http.NewServeMux()
 	mux.HandleFunc(cfg.Server.WebSocketPath, ws.Handle)

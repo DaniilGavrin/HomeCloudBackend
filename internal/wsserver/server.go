@@ -14,6 +14,7 @@ import (
 
 	"HomeCloudBackend/internal/commands"
 	"HomeCloudBackend/internal/commands/bootstrap"
+	"HomeCloudBackend/internal/commands/system"
 	"HomeCloudBackend/internal/connections"
 	devicestore "HomeCloudBackend/internal/devices"
 	"HomeCloudBackend/internal/devicebridge"
@@ -25,6 +26,7 @@ import (
 	"HomeCloudBackend/internal/roomheartbeat"
 	"HomeCloudBackend/internal/storage"
 	"HomeCloudBackend/internal/storageagent"
+	"HomeCloudBackend/internal/telemetry"
 	"HomeCloudBackend/internal/streaming"
 	"HomeCloudBackend/wsconfig"
 
@@ -225,6 +227,27 @@ func New(cfg *wsconfig.Config, db *sql.DB, logger *slog.Logger, storageManagers 
 // RegisterCommand registers an application command before serving connections.
 func (s *Server) RegisterCommand(action string, h commands.Handler) error {
 	return s.registry.Register(action, h)
+}
+
+// SetTelemetryCore registers telemetry commands before the server starts serving.
+func (s *Server) SetTelemetryCore(core *telemetry.Core) error {
+	if core == nil {
+		return errors.New("telemetry core is unavailable")
+	}
+	if err := core.SetObserver(func(samples []telemetry.Sample) {
+		ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+		defer cancel()
+		_, err := s.PublishEvent(ctx, "system.metrics", map[string]any{
+			"samples": samples,
+			"collected_at": time.Now().UTC().Format(time.RFC3339Nano),
+		})
+		if err != nil && s.log != nil {
+			s.log.Warn("publish telemetry sample event failed", "error", err)
+		}
+	}); err != nil {
+		return err
+	}
+	return system.RegisterTelemetry(s.registry, core, s.cfg.MessageBus.RequireSubscription)
 }
 
 // ServiceAvailability returns local HomeCloud service state using existing
