@@ -173,6 +173,7 @@ func run() error {
 	type activeServer struct {
 		server   *http.Server
 		listener net.Listener
+		tls      bool
 	}
 	var active []activeServer
 	if cfg.DeviceBridge.Enabled {
@@ -201,6 +202,7 @@ func run() error {
 		}
 		active = append(active, activeServer{
 			listener: listener,
+			tls:      cfg.Server.TLS.Mode == "native",
 			server: &http.Server{
 				Handler:           netbind.RestrictPeer(ep, mux),
 				ReadHeaderTimeout: time.Duration(cfg.Server.ReadHeaderTimeoutSeconds) * time.Second,
@@ -224,7 +226,7 @@ func run() error {
 		a := a
 		go func() {
 			var e error
-			if cfg.Server.TLS.Mode == "native" {
+			if a.tls {
 				cert, key := cfg.Server.TLS.CertFile, cfg.Server.TLS.KeyFile
 				if !filepath.IsAbs(cert) {
 					cert = filepath.Join(root, cert)
