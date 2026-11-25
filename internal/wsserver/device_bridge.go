@@ -47,6 +47,9 @@ func (s *Server) registerDeviceBridgeCommands() {
 		return map[string]any{"alive": true}, nil
 	})
 	s.registry.MustRegister("device.bridge.status", func(_ context.Context, _ commands.Inbound, client commands.ClientContext) (any, error) {
+		if !s.cfg.DeviceBridge.Enabled {
+			return nil, errors.New("device_bridge_disabled")
+		}
 		if client.DeviceID == deviceBridgePeerID || client.ClientType == deviceBridgeClientType {
 			return nil, errors.New("forbidden")
 		}
@@ -55,7 +58,7 @@ func (s *Server) registerDeviceBridgeCommands() {
 }
 
 func validateDeviceBridgePeer(client commands.ClientContext) error {
-	if client.DeviceID != deviceBridgePeerID || client.ClientType != deviceBridgeClientType {
+	if !s.cfg.DeviceBridge.Enabled || client.DeviceID != deviceBridgePeerID || client.ClientType != deviceBridgeClientType {
 		return errors.New("forbidden")
 	}
 	ip := net.ParseIP(client.RemoteIP)
