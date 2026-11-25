@@ -28,7 +28,14 @@ func (s *Server) registerDeviceBridgeCommands() {
 	s.registry.MustRegister("device.bridge.register", func(_ context.Context, msg commands.Inbound, client commands.ClientContext) (any, error) {
 		if err := validateDeviceBridgePeer(client); err != nil { return nil, err }
 		var payload bridgeRegistration
-		if err := json.Unmarshal(msg.Data, &payload); err != nil { return nil, errors.New("invalid device bridge registration payload") }
+		dec := json.NewDecoder(bytes.NewReader(msg.Data))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&payload); err != nil {
+			return nil, errors.New("invalid device bridge registration payload")
+		}
+		if err := dec.Decode(new(any)); !errors.Is(err, io.EOF) {
+			return nil, errors.New("trailing device bridge registration payload")
+		}
 		if payload.ContractsVersion != deviceContractsV1 { return nil, errors.New("unsupported_contract_version") }
 		if payload.BridgeVersion == "" || len(payload.BridgeVersion) > 64 { return nil, errors.New("invalid bridge_version") }
 		if err := s.deviceBridge.Register(client.SessionID); err != nil { return nil, err }
