@@ -11,10 +11,14 @@ import (
 	"strconv"
 
 	"HomeCloudBackend/internal/commands"
+	"HomeCloudBackend/internal/devicebridge"
 	"HomeCloudBackend/internal/mediagateway"
 )
 
 func (s *Server) SetLocalNodeID(nodeID string) { s.localNodeID = nodeID }
+
+// DeviceBridgeTracker exposes the lifecycle tracker to the process supervisor.
+func (s *Server) DeviceBridgeTracker() *devicebridge.Tracker { return s.deviceBridge }
 
 func (s *Server) registerMediaGatewayCommands() {
 	s.registry.MustRegister("media.gateway.register", s.registerMediaGateway)
