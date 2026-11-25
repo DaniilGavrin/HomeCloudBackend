@@ -16,6 +16,7 @@ type Config struct {
 	Screens       ScreensConfig       `yaml:"screens"`
 	Media         MediaConfig         `yaml:"media"`
 	MediaGateway  MediaGatewayConfig  `yaml:"media_gateway"`
+	DeviceBridge  DeviceBridgeConfig  `yaml:"device_bridge"`
 	Audio         AudioConfig         `yaml:"audio"`
 	Storage       StorageConfig       `yaml:"storage"`
 	Integrations  IntegrationsConfig  `yaml:"integrations"`
@@ -316,4 +317,12 @@ type BackupsConfig struct {
 type TypeStartConfig struct {
 	StartByte *uint8 `yaml:"start_byte"`
 	DBByte    *uint8 `yaml:"db_byte"`
+}
+
+
+// DeviceBridgeConfig exposes a dedicated loopback-only WebSocket endpoint.
+// Process execution settings will be added with the Bridge executable contract.
+type DeviceBridgeConfig struct {
+	Enabled     bool   `yaml:"enabled"`
+	BindAddress string `yaml:"bind_address"`
 }
