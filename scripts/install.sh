@@ -4,7 +4,7 @@ set -Eeuo pipefail
 OWNER="DaniilGavrin"
 REPO="HomeCloudBackend"
 # Bootstrap from an immutable, reviewed commit rather than a mutable branch.
-CLI_REV="1144905b0758d0dd5477eac52235625460a9c187"
+CLI_REV="6a636e42de7752b8b81ba465386e52e9cb0c2f16"
 DEST="/usr/local/bin/homecloud"
 SOURCE="https://raw.githubusercontent.com/$OWNER/$REPO/$CLI_REV/scripts/homecloud"
 
