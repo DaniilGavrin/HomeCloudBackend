@@ -16,6 +16,7 @@ import (
 	"HomeCloudBackend/internal/commands/bootstrap"
 	"HomeCloudBackend/internal/connections"
 	devicestore "HomeCloudBackend/internal/devices"
+	"HomeCloudBackend/internal/devicebridge"
 	"HomeCloudBackend/internal/events"
 	"HomeCloudBackend/internal/mediagateway"
 	"HomeCloudBackend/internal/mediarooms"
@@ -55,6 +56,7 @@ type Server struct {
 	storageAgents  *storageagent.Registry
 	deviceStore    *devicestore.Store
 	cpuMonitoring  *cpumonitor.Manager
+	deviceBridge   *devicebridge.Tracker
 }
 
 func New(cfg *wsconfig.Config, db *sql.DB, logger *slog.Logger, storageManagers ...*storage.Manager) *Server {
@@ -62,7 +64,7 @@ func New(cfg *wsconfig.Config, db *sql.DB, logger *slog.Logger, storageManagers 
 		clients:  connections.NewManager(cfg.WebSocket.MaxConnections, cfg.WebSocket.MaxConnectionsPerIP),
 		registry: commands.NewRegistry(),
 		events:   events.New(),
-		gateways: mediagateway.New(), rooms: mediarooms.New(4), heartbeats: roomheartbeat.New(), mediaControls: roomcontrol.New(), heartbeatStop: make(chan struct{})}
+		gateways: mediagateway.New(), rooms: mediarooms.New(4), heartbeats: roomheartbeat.New(), mediaControls: roomcontrol.New(), heartbeatStop: make(chan struct{}), deviceBridge: devicebridge.New()}
 	s.storageAgents = storageagent.New()
 	cpuCollector := cpumonitor.NewSystemCollector()
 	s.cpuMonitoring = cpumonitor.NewManager(cpuCollector, func() string { return s.localNodeID })
@@ -216,6 +218,7 @@ func New(cfg *wsconfig.Config, db *sql.DB, logger *slog.Logger, storageManagers 
 	s.registerMediaGatewayCommands()
 	s.registerMediaRoomCommands()
 	s.registerStorageAgentCommands()
+	s.registerDeviceBridgeCommands()
 	return s
 }
 
@@ -227,7 +230,7 @@ func (s *Server) RegisterCommand(action string, h commands.Handler) error {
 // ServiceAvailability returns local HomeCloud service state using existing
 // Gateway and Storage Service session registries. It contains no credentials.
 func (s *Server) ServiceAvailability() map[string]bool {
-	states := map[string]bool{"backend": true, "storage_service": false}
+	states := map[string]bool{"backend": true, "storage_service": false, "device_bridge": s.deviceBridge.Snapshot().Ready}
 	if s.cfg.MediaGateway.Enabled {
 		_, online := s.gateways.Get()
 		states["media_gateway"] = online
@@ -376,6 +379,9 @@ func (s *Server) Handle(w http.ResponseWriter, r *http.Request) {
 		s.events.Detach(subscriber)
 		s.gateways.Unregister(peer.DeviceID, peer.ConnectedAt.UnixNano())
 		s.storageAgents.Disconnect(peer.DeviceID, peer.ConnectedAt.UnixNano())
+		if peer.DeviceID == "homecloud-device-bridge" && peer.ClientType == "device_bridge" {
+			s.deviceBridge.Disconnect(peer.ConnectedAt.UnixNano(), "connection_lost")
+		}
 		s.clients.Unregister(peer)
 		s.onMediaPeerDisconnected(peer.DeviceID)
 		_, _ = s.PublishEvent(context.Background(), "clients.disconnected", map[string]string{
