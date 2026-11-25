@@ -325,4 +325,12 @@ type TypeStartConfig struct {
 type DeviceBridgeConfig struct {
 	Enabled     bool   `yaml:"enabled"`
 	BindAddress string `yaml:"bind_address"`
+	Executable string `yaml:"executable"`
+	WorkingDir string `yaml:"working_dir"`
+	ConfigPath string `yaml:"config_path"`
+	StartupTimeoutSeconds int `yaml:"startup_timeout_seconds"`
+	ShutdownTimeoutSeconds int `yaml:"shutdown_timeout_seconds"`
+	HeartbeatTimeoutSeconds int `yaml:"heartbeat_timeout_seconds"`
+	InitialBackoffSeconds int `yaml:"initial_backoff_seconds"`
+	MaxBackoffSeconds int `yaml:"max_backoff_seconds"`
 }
