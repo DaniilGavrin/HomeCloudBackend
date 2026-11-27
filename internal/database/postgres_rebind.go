@@ -1,8 +1,8 @@
 package database
 
 import (
-	"database/sql"
 	"context"
+	"database/sql"
 	"database/sql/driver"
 	"strconv"
 	"strings"
