@@ -18,7 +18,7 @@ var schemaV1 = []string{
 		device_type_id TEXT NOT NULL,
 		device_type_version INTEGER NOT NULL CHECK(device_type_version > 0),
 		metadata_json TEXT NOT NULL DEFAULT '{}',
-		capability_revision INTEGER NOT NULL DEFAULT 0 CHECK(capability_revision >= 0),
+		capability_revision BIGINT NOT NULL DEFAULT 0 CHECK(capability_revision >= 0),
 		status TEXT NOT NULL DEFAULT 'unsupported' CHECK(status IN ('active','unsupported','removed')),
 		created_at TEXT NOT NULL,
 		updated_at TEXT NOT NULL,
