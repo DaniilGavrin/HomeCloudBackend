@@ -143,6 +143,30 @@ func CheckStart(c *Config, root string) error {
 	if c.DBServer.ConnectionTimeout <= 0 {
 		return errors.New("db_server.connection_timeout должен быть > 0")
 	}
+	switch *c.TypeStart.DBByte {
+	case DBPostgreSQLLocal, DBPostgreSQLRemote:
+		d := c.DBServer
+		if d.Database == "" || d.Username == "" {
+			return errors.New("db_server.database и db_server.username обязательны для PostgreSQL")
+		}
+		if strings.TrimSpace(d.Database) != d.Database || strings.TrimSpace(d.Username) != d.Username ||
+			strings.ContainsAny(d.Database+d.Username+d.Password, "\x00\\r\\n") {
+			return errors.New("db_server: недопустимые символы в параметрах PostgreSQL")
+		}
+		if d.Port < 0 || d.Port > 65535 {
+			return errors.New("db_server.port: допустимо 0 (порт по умолчанию 5432) или 1..65535")
+		}
+		host := d.Host
+		if *c.TypeStart.DBByte == DBPostgreSQLLocal && host == "" {
+			host = "127.0.0.1"
+		}
+		if host == "" || strings.TrimSpace(host) != host || strings.ContainsAny(host, " /\\\\\\t\\r\\n") {
+			return errors.New("db_server.host обязателен и должен содержать только hostname или IP")
+		}
+		if *c.TypeStart.DBByte == DBPostgreSQLLocal && !isLoopback(host) {
+			return errors.New("PostgreSQL Local должен слушать только localhost или loopback IP; для удалённого сервера используйте db_byte 0x02")
+		}
+	}
 	if *c.TypeStart.DBByte == DBSQLite {
 		if c.DBServer.FilePath == "" {
 			return errors.New("db_server.file_path обязателен для SQLite")
