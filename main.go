@@ -147,7 +147,7 @@ func run() error {
 		if retentionDays <= 0 {
 			retentionDays = 14
 		}
-		history, historyErr := telemetry.NewHistoryWithRetention(
+		history, historyErr := telemetry.NewSQLHistoryWithRetention(
 			db, 256, time.Hour, 24*time.Hour, time.Duration(retentionDays)*24*time.Hour,
 		)
 		if historyErr != nil {
