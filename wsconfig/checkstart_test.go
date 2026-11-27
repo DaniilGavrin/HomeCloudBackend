@@ -138,3 +138,30 @@ func TestMonitoringBoundsApplyInFastAndStrictModes(t *testing.T) {
 		})
 	}
 }
+
+func TestPostgreSQLModesDoNotRequireSQLiteSettings(t *testing.T) {
+	for _, mode := range []uint8{DBPostgreSQLLocal, DBPostgreSQLRemote} {
+		t.Run(fmt.Sprintf("db_byte_%02x", mode), func(t *testing.T) {
+			cfg := validConfig(t)
+			cfg.TypeStart.DBByte = &mode
+			cfg.DBServer.FilePath = ""
+			cfg.DBServer.SQLite.JournalMode = "not-a-sqlite-mode"
+			cfg.DBServer.SQLite.BusyTimeoutMs = -1
+			cfg.DBServer.SQLite.ForeignKeys = false
+			cfg.DBServer.TLSEnabled = true
+
+			if err := CheckStart(cfg, t.TempDir()); err != nil {
+				t.Fatalf("PostgreSQL mode must not be rejected by SQLite-only settings: %v", err)
+			}
+		})
+	}
+}
+
+func TestUnknownDatabaseByteRejected(t *testing.T) {
+	cfg := validConfig(t)
+	unknown := uint8(0x03)
+	cfg.TypeStart.DBByte = &unknown
+	if err := CheckStart(cfg, t.TempDir()); err == nil {
+		t.Fatal("unknown database byte must be rejected")
+	}
+}

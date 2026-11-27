@@ -394,8 +394,8 @@ func TestConfigStartAndDatabaseBytes(t *testing.T) {
 		{"start_byte", "0x00", false}, {"start_byte", "0xA0", false}, {"start_byte", "0xA3", false},
 		{"start_byte", "0xFF", false}, {"start_byte", "-1", false}, {"start_byte", "0x100", false},
 		{"start_byte", "null", false},
-		{"db_byte", "0x00", true}, {"db_byte", "0x01", false}, {"db_byte", "0x02", false},
-		{"db_byte", "0x0A", false}, {"db_byte", "0xFF", false}, {"db_byte", "-1", false},
+		{"db_byte", "0x00", true}, {"db_byte", "0x01", true}, {"db_byte", "0x02", true},
+		{"db_byte", "0x03", false}, {"db_byte", "0x0A", false}, {"db_byte", "0xFF", false}, {"db_byte", "-1", false},
 		{"db_byte", "0x100", false}, {"db_byte", "null", false},
 	} {
 		tc := tc
@@ -536,7 +536,7 @@ func TestConfigCrossFieldAndSecurityRules(t *testing.T) {
 		{"WS pong timeout not smaller than ping", map[string]string{"websocket.pong_timeout_seconds": "30"}},
 		{"monitoring path conflicts with WS", map[string]string{"monitoring.enabled": "true", "monitoring.health_path": "\"/ws\""}},
 		{"remote access unsupported", map[string]string{"security.remote_access.enabled": "true"}},
-		{"SQL driver unavailable", map[string]string{"type_start.db_byte": "0x02"}},
+		{"Unknown database byte", map[string]string{"type_start.db_byte": "0x03"}},
 		{"SQLite WAL mode invalid", map[string]string{"db_server.sqlite.journal_mode": "\"bogus\""}},
 		{"SQLite foreign keys disabled", map[string]string{"db_server.sqlite.foreign_keys": "false"}},
 		{"SQLite TLS nonsensical", map[string]string{"db_server.tls_enabled": "true"}},
@@ -648,13 +648,13 @@ func TestConfigStrictVsFast(t *testing.T) {
 			t.Fatalf("wrong FAST fallback: %+v", got.Server)
 		}
 	})
-	t.Run("FAST cannot select unimplemented DB", func(t *testing.T) {
+	t.Run("FAST rejects unknown DB byte", func(t *testing.T) {
 		setupSecret(t)
 		doc := referenceDocument(t)
 		mutateYAML(t, doc, "type_start.start_byte", "0xA1", false)
-		mutateYAML(t, doc, "type_start.db_byte", "0x09", false)
+		mutateYAML(t, doc, "type_start.db_byte", "0x03", false)
 		if _, err := LoadAt(writeDocument(t, doc)); err == nil {
-			t.Fatal("FAST must not start unsupported ClickHouse driver")
+			t.Fatal("FAST must reject unknown database byte")
 		}
 	})
 }

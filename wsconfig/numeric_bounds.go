@@ -97,6 +97,10 @@ func fieldByYAMLPath(value reflect.Value, path string) (reflect.Value, error) {
 
 func validateNumericBounds(c *Config) error {
 	for key, bound := range NumericBounds {
+		// SQLite-only settings must not constrain PostgreSQL configurations.
+		if key == "db_server.sqlite.busy_timeout_ms" && c.TypeStart.DBByte != nil && *c.TypeStart.DBByte != DBSQLite {
+			continue
+		}
 		field, err := fieldByYAMLPath(reflect.ValueOf(c), key)
 		if err != nil {
 			return err

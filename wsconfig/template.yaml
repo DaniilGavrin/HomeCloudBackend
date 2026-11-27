@@ -352,16 +352,8 @@ type_start:
 
   # DATABASE TYPE:
   # 0x00 — SQLite
-  # 0x01 — MySQL
-  # 0x02 — PostgreSQL
-  # 0x03 — MariaDB
-  # 0x04 — Microsoft SQL Server
-  # 0x05 — Oracle Database
-  # 0x06 — CockroachDB
-  # 0x07 — Firebird
-  # 0x08 — IBM Db2
-  # 0x09 — ClickHouse
-  # 0x0A — DuckDB
-  # Код не означает, что драйвер уже реализован.
+  # 0x01 — PostgreSQL Local (локальная системная установка)
+  # 0x02 — PostgreSQL Remote (удалённый сервер)
   # Отсутствие значения НЕ равно SQLite (0x00).
+  # Другие значения пока не поддерживаются.
   db_byte:

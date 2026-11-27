@@ -17,7 +17,9 @@ var ErrCreated = errors.New("config/config.yaml создан; заполните
 const (
 	StartFast   uint8 = 0xA1
 	StartStrict uint8 = 0xA2
-	DBSQLite    uint8 = 0x00
+	DBSQLite           uint8 = 0x00
+	DBPostgreSQLLocal  uint8 = 0x01
+	DBPostgreSQLRemote uint8 = 0x02
 )
 
 //go:embed template.yaml
