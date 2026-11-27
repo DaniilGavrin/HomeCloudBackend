@@ -138,7 +138,7 @@ func openPostgreSQL(ctx context.Context, cfg *wsconfig.Config) (*sql.DB, error) 
 	}
 	sslMode := "disable"
 	if d.TLSEnabled {
-		sslMode = "require"
+		sslMode = "verify-full"
 	}
 	u := &url.URL{
 		Scheme: "postgres",
@@ -223,6 +223,9 @@ func Verify(ctx context.Context, db *sql.DB) error {
 	}
 	if err := tableExists("hc_devices"); err != nil {
 		return errors.New("таблица hc_devices отсутствует: сначала выполните go run . init-db")
+	}
+	if err := registry.VerifySchema(ctx, db); err != nil {
+		return err
 	}
 	if err := physicaldevices.VerifySchema(ctx, db); err != nil {
 		return err
