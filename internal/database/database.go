@@ -148,6 +148,7 @@ func openPostgreSQL(ctx context.Context, cfg *wsconfig.Config) (*sql.DB, error) 
 	}
 	query := url.Values{}
 	query.Set("sslmode", sslMode)
+	query.Set("connect_timeout", fmt.Sprint(d.ConnectionTimeout))
 	u.RawQuery = query.Encode()
 
 	db, err := sql.Open("postgres-rebind", u.String())
