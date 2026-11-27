@@ -23,6 +23,27 @@ func isLoopback(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+func validPostgreSQLHost(host string) bool {
+	if net.ParseIP(host) != nil {
+		return true
+	}
+	if host == "" || len(host) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, ch := range label {
+			if (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') &&
+				(ch < '0' || ch > '9') && ch != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func privateBindHost(host string) bool {
 	if host == "auto_private" || isLoopback(host) {
 		return true
@@ -160,7 +181,7 @@ func CheckStart(c *Config, root string) error {
 		if *c.TypeStart.DBByte == DBPostgreSQLLocal && host == "" {
 			host = "127.0.0.1"
 		}
-		if host == "" || strings.TrimSpace(host) != host || strings.ContainsAny(host, " /\\\t\r\n") {
+		if host == "" || strings.TrimSpace(host) != host || !validPostgreSQLHost(host) {
 			return errors.New("db_server.host обязателен и должен содержать только hostname или IP")
 		}
 		if *c.TypeStart.DBByte == DBPostgreSQLLocal && !isLoopback(host) {
