@@ -20,7 +20,7 @@ const (
 	writeBatchSize = 256
 )
 
-type SQLiteHistory struct {
+type History struct {
 	db       *sql.DB
 	queue    chan []Sample
 	stop     chan struct{}
@@ -37,7 +37,7 @@ type SQLiteHistory struct {
 	retentionErrors atomic.Uint64
 }
 
-func InitSQLiteSchema(ctx context.Context, db *sql.DB) error {
+func InitSchema(ctx context.Context, db *sql.DB) error {
 	const schema = `
 CREATE TABLE IF NOT EXISTS hc_telemetry_samples (
  node_id TEXT NOT NULL,
@@ -68,11 +68,11 @@ CREATE INDEX IF NOT EXISTS idx_hc_telemetry_samples_retention
 	return nil
 }
 
-func NewSQLiteHistory(db *sql.DB, queueSize int) (*SQLiteHistory, error) {
-	return NewSQLiteHistoryWithRetention(db, queueSize, time.Hour, 24*time.Hour, 14*24*time.Hour)
+func NewHistory(db *sql.DB, queueSize int) (*History, error) {
+	return NewHistoryWithRetention(db, queueSize, time.Hour, 24*time.Hour, 14*24*time.Hour)
 }
 
-func NewSQLiteHistoryWithRetention(db *sql.DB, queueSize int, rawRetention, tenRetention, minuteRetention time.Duration) (*SQLiteHistory, error) {
+func NewHistoryWithRetention(db *sql.DB, queueSize int, rawRetention, tenRetention, minuteRetention time.Duration) (*History, error) {
 	if db == nil {
 		return nil, errors.New("telemetry database is nil")
 	}
@@ -82,7 +82,7 @@ func NewSQLiteHistoryWithRetention(db *sql.DB, queueSize int, rawRetention, tenR
 	if rawRetention <= 0 || tenRetention <= 0 || minuteRetention <= 0 {
 		return nil, errors.New("telemetry retention durations must be positive")
 	}
-	h := &SQLiteHistory{
+	h := &History{
 		db: db, queue: make(chan []Sample, queueSize),
 		stop: make(chan struct{}), done: make(chan struct{}),
 		rawRetention: rawRetention, tenRetention: tenRetention, minuteRetention: minuteRetention,
@@ -99,7 +99,7 @@ func NewSQLiteHistoryWithRetention(db *sql.DB, queueSize int, rawRetention, tenR
 
 // Append is deliberately non-blocking. A full queue is observable by the caller
 // and cannot stall WebSocket command handling or the SQLite users.
-func (h *SQLiteHistory) Append(ctx context.Context, samples []Sample) error {
+func (h *History) Append(ctx context.Context, samples []Sample) error {
 	if len(samples) == 0 {
 		return nil
 	}
@@ -318,12 +318,14 @@ func (h *SQLiteHistory) compact(ctx context.Context, now time.Time) error {
 	tenEnd := nowMS / tenResolution * tenResolution
 	tenStart := tenEnd - tenResolution
 	_, err = tx.ExecContext(ctx, `
-INSERT OR REPLACE INTO hc_telemetry_samples
+INSERT INTO hc_telemetry_samples
 (node_id,metric,labels_json,resolution_ms,timestamp_ms,value,min_value,max_value,sample_count,unit)
 SELECT node_id,metric,labels_json,?, ?, AVG(value),MIN(min_value),MAX(max_value),SUM(sample_count),unit
 FROM hc_telemetry_samples
 WHERE resolution_ms=? AND timestamp_ms>=? AND timestamp_ms<?
-GROUP BY node_id,metric,labels_json,unit`, tenResolution, tenStart, rawResolution, tenStart, tenEnd)
+GROUP BY node_id,metric,labels_json,unit
+ON CONFLICT(node_id,metric,labels_json,resolution_ms,timestamp_ms)
+DO UPDATE SET value=excluded.value,min_value=excluded.min_value,max_value=excluded.max_value,sample_count=excluded.sample_count,unit=excluded.unit`, tenResolution, tenStart, rawResolution, tenStart, tenEnd)
 	if err != nil {
 		_ = tx.Rollback()
 		return err
@@ -336,11 +338,13 @@ GROUP BY node_id,metric,labels_json,unit`, tenResolution, tenStart, rawResolutio
 	_, err = tx.ExecContext(ctx, `
 INSERT OR REPLACE INTO hc_telemetry_samples
 (node_id,metric,labels_json,resolution_ms,timestamp_ms,value,min_value,max_value,sample_count,unit)
-SELECT node_id,metric,labels_json,?, ?, SUM(value*sample_count)/MAX(SUM(sample_count),1),
+SELECT node_id,metric,labels_json,?, ?, SUM(value*sample_count)/CASE WHEN SUM(sample_count)>0 THEN SUM(sample_count) ELSE 1 END,
  MIN(min_value),MAX(max_value),SUM(sample_count),unit
 FROM hc_telemetry_samples
 WHERE resolution_ms=? AND timestamp_ms>=? AND timestamp_ms<?
-GROUP BY node_id,metric,labels_json,unit`, minResolution, minStart, tenResolution, minStart, minEnd)
+GROUP BY node_id,metric,labels_json,unit
+ON CONFLICT(node_id,metric,labels_json,resolution_ms,timestamp_ms)
+DO UPDATE SET value=excluded.value,min_value=excluded.min_value,max_value=excluded.max_value,sample_count=excluded.sample_count,unit=excluded.unit`, minResolution, minStart, tenResolution, minStart, minEnd)
 	if err != nil {
 		_ = tx.Rollback()
 		return err
@@ -422,3 +426,19 @@ func cloneLabels(labels map[string]string) map[string]string {
 	return copy
 }
 
+
+ 
+// SQLite-named wrappers are retained for source compatibility with existing callers.
+type SQLiteHistory = History
+
+func InitSQLiteSchema(ctx context.Context, db *sql.DB) error {
+	return InitSchema(ctx, db)
+}
+
+func NewSQLiteHistory(db *sql.DB, queueSize int) (*History, error) {
+	return NewHistory(db, queueSize)
+}
+
+func NewSQLiteHistoryWithRetention(db *sql.DB, queueSize int, rawRetention, tenRetention, minuteRetention time.Duration) (*History, error) {
+	return NewHistoryWithRetention(db, queueSize, rawRetention, tenRetention, minuteRetention)
+}
