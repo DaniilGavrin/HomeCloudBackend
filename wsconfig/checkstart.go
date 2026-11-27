@@ -45,7 +45,7 @@ func CheckStart(c *Config, root string) error {
 		return errors.New("type_start.start_byte обязателен")
 	}
 	if c.TypeStart.DBByte == nil {
-		return errors.New("type_start.db_byte обязателен, 0x00 означает SQLite")
+		return errors.New("type_start.db_byte обязателен: 0x00 SQLite, 0x01 PostgreSQL Local, 0x02 PostgreSQL Remote")
 	}
 	switch *c.TypeStart.DBByte {
 	case DBSQLite, DBPostgreSQLLocal, DBPostgreSQLRemote:
