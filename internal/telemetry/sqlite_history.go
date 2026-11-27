@@ -20,7 +20,7 @@ const (
 	writeBatchSize = 256
 )
 
-type History struct {
+type SQLHistory struct {
 	db       *sql.DB
 	queue    chan []Sample
 	stop     chan struct{}
@@ -68,11 +68,11 @@ CREATE INDEX IF NOT EXISTS idx_hc_telemetry_samples_retention
 	return nil
 }
 
-func NewHistory(db *sql.DB, queueSize int) (*History, error) {
-	return NewHistoryWithRetention(db, queueSize, time.Hour, 24*time.Hour, 14*24*time.Hour)
+func NewSQLHistory(db *sql.DB, queueSize int) (*SQLHistory, error) {
+	return NewSQLHistoryWithRetention(db, queueSize, time.Hour, 24*time.Hour, 14*24*time.Hour)
 }
 
-func NewHistoryWithRetention(db *sql.DB, queueSize int, rawRetention, tenRetention, minuteRetention time.Duration) (*History, error) {
+func NewSQLHistoryWithRetention(db *sql.DB, queueSize int, rawRetention, tenRetention, minuteRetention time.Duration) (*SQLHistory, error) {
 	if db == nil {
 		return nil, errors.New("telemetry database is nil")
 	}
@@ -82,7 +82,7 @@ func NewHistoryWithRetention(db *sql.DB, queueSize int, rawRetention, tenRetenti
 	if rawRetention <= 0 || tenRetention <= 0 || minuteRetention <= 0 {
 		return nil, errors.New("telemetry retention durations must be positive")
 	}
-	h := &History{
+	h := &SQLHistory{
 		db: db, queue: make(chan []Sample, queueSize),
 		stop: make(chan struct{}), done: make(chan struct{}),
 		rawRetention: rawRetention, tenRetention: tenRetention, minuteRetention: minuteRetention,
@@ -99,7 +99,7 @@ func NewHistoryWithRetention(db *sql.DB, queueSize int, rawRetention, tenRetenti
 
 // Append is deliberately non-blocking. A full queue is observable by the caller
 // and cannot stall WebSocket command handling or the database users.
-func (h *History) Append(ctx context.Context, samples []Sample) error {
+func (h *SQLHistory) Append(ctx context.Context, samples []Sample) error {
 	if len(samples) == 0 {
 		return nil
 	}
@@ -127,7 +127,7 @@ func (h *History) Append(ctx context.Context, samples []Sample) error {
 	}
 }
 
-func (h *History) Query(ctx context.Context, q Query) ([]Point, error) {
+func (h *SQLHistory) Query(ctx context.Context, q Query) ([]Point, error) {
 	if q.From.IsZero() || q.To.IsZero() || !q.To.After(q.From) {
 		return nil, ErrInvalidQuery
 	}
@@ -185,7 +185,7 @@ LIMIT ?`, q.NodeID, q.Metric, resolutionMS, q.From.UTC().UnixMilli(), q.To.UTC()
 	return points, rows.Err()
 }
 
-func (h *History) run() {
+func (h *SQLHistory) run() {
 	defer close(h.done)
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -275,7 +275,7 @@ func (h *History) run() {
 	}
 }
 
-func (h *History) writeBatch(ctx context.Context, samples []Sample) error {
+func (h *SQLHistory) writeBatch(ctx context.Context, samples []Sample) error {
 	tx, err := h.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -309,7 +309,7 @@ DO UPDATE SET value=excluded.value,min_value=excluded.min_value,
 	return tx.Commit()
 }
 
-func (h *History) compact(ctx context.Context, now time.Time) error {
+func (h *SQLHistory) compact(ctx context.Context, now time.Time) error {
 	tx, err := h.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -353,7 +353,7 @@ DO UPDATE SET value=excluded.value,min_value=excluded.min_value,max_value=exclud
 	return tx.Commit()
 }
 
-func (h *History) prune(ctx context.Context, now time.Time) error {
+func (h *SQLHistory) prune(ctx context.Context, now time.Time) error {
 	tx, err := h.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -374,7 +374,7 @@ WHERE (resolution_ms=? AND timestamp_ms<?)
 	return tx.Commit()
 }
 
-func (h *History) HistoryStats() map[string]uint64 {
+func (h *SQLHistory) HistoryStats() map[string]uint64 {
 	return map[string]uint64{
 		"history_write_errors": h.writeErrors.Load(),
 		"history_dropped_samples": h.droppedSamples.Load(),
@@ -383,7 +383,7 @@ func (h *History) HistoryStats() map[string]uint64 {
 	}
 }
 
-func (h *History) Close() error {
+func (h *SQLHistory) Close() error {
 	h.mu.Lock()
 	if !h.closed {
 		h.closed = true
@@ -429,16 +429,16 @@ func cloneLabels(labels map[string]string) map[string]string {
 
  
 // SQLite-named wrappers are retained for source compatibility with existing callers.
-type SQLiteHistory = History
+type SQLiteHistory = SQLHistory
 
 func InitSQLiteSchema(ctx context.Context, db *sql.DB) error {
 	return InitSchema(ctx, db)
 }
 
-func NewSQLiteHistory(db *sql.DB, queueSize int) (*History, error) {
-	return NewHistory(db, queueSize)
+func NewSQLiteHistory(db *sql.DB, queueSize int) (*SQLHistory, error) {
+	return NewSQLHistory(db, queueSize)
 }
 
-func NewSQLiteHistoryWithRetention(db *sql.DB, queueSize int, rawRetention, tenRetention, minuteRetention time.Duration) (*History, error) {
-	return NewHistoryWithRetention(db, queueSize, rawRetention, tenRetention, minuteRetention)
+func NewSQLiteHistoryWithRetention(db *sql.DB, queueSize int, rawRetention, tenRetention, minuteRetention time.Duration) (*SQLHistory, error) {
+	return NewSQLHistoryWithRetention(db, queueSize, rawRetention, tenRetention, minuteRetention)
 }
