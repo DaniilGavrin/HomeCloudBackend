@@ -62,7 +62,7 @@ var schemaV1 = []string{
 		value_json TEXT NOT NULL,
 		measured_at TEXT NOT NULL,
 		received_at TEXT NOT NULL,
-		capability_revision INTEGER NOT NULL,
+		capability_revision BIGINT NOT NULL,
 		PRIMARY KEY(device_id,entity_id),
 		FOREIGN KEY(device_id,entity_id) REFERENCES hc_physical_device_entities(device_id,entity_id) ON DELETE CASCADE
 	)`,
