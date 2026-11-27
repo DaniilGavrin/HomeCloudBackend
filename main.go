@@ -79,7 +79,7 @@ func run() error {
 	db, err := database.Open(dbCtx, cfg, root)
 	cancel()
 	if err != nil {
-		return fmt.Errorf("подключение SQLite: %w", err)
+		return fmt.Errorf("подключение базы данных: %w", err)
 	}
 	defer db.Close()
 	if command == "init-db" {
@@ -147,7 +147,7 @@ func run() error {
 		if retentionDays <= 0 {
 			retentionDays = 14
 		}
-		history, historyErr := telemetry.NewSQLiteHistoryWithRetention(
+		history, historyErr := telemetry.NewHistoryWithRetention(
 			db, 256, time.Hour, 24*time.Hour, time.Duration(retentionDays)*24*time.Hour,
 		)
 		if historyErr != nil {
