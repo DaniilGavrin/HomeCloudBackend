@@ -2,8 +2,12 @@ package database
 
 import (
 	"database/sql"
+	"context"
 	"database/sql/driver"
+	"strconv"
 	"strings"
+
+	"github.com/lib/pq"
 )
 
 type rebindDriver struct {
