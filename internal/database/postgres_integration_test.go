@@ -2,13 +2,16 @@ package database
 
 import (
 	"context"
-	"database/sql"
-	"os"
+		"os"
+	"net/url"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"HomeCloudBackend/internal/cluster/registry"
 	"HomeCloudBackend/internal/telemetry"
+	"HomeCloudBackend/wsconfig"
 )
 
 func TestPostgreSQLSchemaAndParameterBinding(t *testing.T) {
@@ -19,15 +22,39 @@ func TestPostgreSQLSchemaAndParameterBinding(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	db, err := sql.Open("postgres-rebind", dsn)
+	parsed, err := url.Parse(dsn)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("parse PostgreSQL test DSN: %v", err)
+	}
+	port := 5432
+	if parsed.Port() != "" {
+		port, err = strconv.Atoi(parsed.Port())
+		if err != nil {
+			t.Fatalf("parse PostgreSQL test port: %v", err)
+		}
+	}
+	username := ""
+	password := ""
+	if parsed.User != nil {
+		username = parsed.User.Username()
+		password, _ = parsed.User.Password()
+	}
+	mode := wsconfig.DBPostgreSQLRemote
+	cfg := &wsconfig.Config{}
+	cfg.TypeStart.DBByte = &mode
+	cfg.DBServer.Host = parsed.Hostname()
+	cfg.DBServer.Port = port
+	cfg.DBServer.Database = strings.TrimPrefix(parsed.Path, "/")
+	cfg.DBServer.Username = username
+	cfg.DBServer.Password = password
+	cfg.DBServer.ConnectionTimeout = 10
+	cfg.DBServer.MaxOpenConnections = 5
+	cfg.DBServer.MaxIdleConnections = 2
+	db, err := Open(ctx, cfg, t.TempDir())
+	if err != nil {
+		t.Fatalf("open PostgreSQL through database.Open: %v", err)
 	}
 	defer db.Close()
-	db.SetMaxOpenConns(5)
-	if err := db.PingContext(ctx); err != nil {
-		t.Fatalf("ping PostgreSQL: %v", err)
-	}
 
 	var rebound string
 	if err := db.QueryRowContext(ctx, "SELECT ?::text || '?'::text", "bound").Scan(&rebound); err != nil {
