@@ -9,8 +9,8 @@ require (
 	github.com/shirou/gopsutil/v4 v4.26.9
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/sys v0.49.0
-	modernc.org/sqlite v1.61.0
 	github.com/lib/pq v1.10.9
+	modernc.org/sqlite v1.61.0
 )
 
 require (
