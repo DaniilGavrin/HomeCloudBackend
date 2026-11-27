@@ -98,7 +98,7 @@ func NewHistoryWithRetention(db *sql.DB, queueSize int, rawRetention, tenRetenti
 }
 
 // Append is deliberately non-blocking. A full queue is observable by the caller
-// and cannot stall WebSocket command handling or the SQLite users.
+// and cannot stall WebSocket command handling or the database users.
 func (h *History) Append(ctx context.Context, samples []Sample) error {
 	if len(samples) == 0 {
 		return nil
@@ -332,11 +332,11 @@ DO UPDATE SET value=excluded.value,min_value=excluded.min_value,max_value=exclud
 	}
 
 	// Rebuild the most recently completed minute on every compaction pass.
-	// This also retries a minute rollup if SQLite was temporarily busy at its boundary.
+	// This also retries a minute rollup if the database was temporarily busy at its boundary.
 	minEnd := nowMS / minResolution * minResolution
 	minStart := minEnd - minResolution
 	_, err = tx.ExecContext(ctx, `
-INSERT OR REPLACE INTO hc_telemetry_samples
+INSERT INTO hc_telemetry_samples
 (node_id,metric,labels_json,resolution_ms,timestamp_ms,value,min_value,max_value,sample_count,unit)
 SELECT node_id,metric,labels_json,?, ?, SUM(value*sample_count)/CASE WHEN SUM(sample_count)>0 THEN SUM(sample_count) ELSE 1 END,
  MIN(min_value),MAX(max_value),SUM(sample_count),unit
