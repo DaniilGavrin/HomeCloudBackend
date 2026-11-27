@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - feature/database-start-bytes
   workflow_dispatch:
 
 permissions:
