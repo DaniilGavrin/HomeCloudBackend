@@ -43,12 +43,12 @@ CREATE TABLE IF NOT EXISTS hc_telemetry_samples (
  node_id TEXT NOT NULL,
  metric TEXT NOT NULL,
  labels_json TEXT NOT NULL,
- resolution_ms INTEGER NOT NULL,
- timestamp_ms INTEGER NOT NULL,
+ resolution_ms BIGINT NOT NULL,
+ timestamp_ms BIGINT NOT NULL,
  value REAL NOT NULL,
  min_value REAL NOT NULL,
  max_value REAL NOT NULL,
- sample_count INTEGER NOT NULL DEFAULT 1,
+ sample_count BIGINT NOT NULL DEFAULT 1,
  unit TEXT NOT NULL DEFAULT '',
  PRIMARY KEY(node_id, metric, labels_json, resolution_ms, timestamp_ms)
 );
