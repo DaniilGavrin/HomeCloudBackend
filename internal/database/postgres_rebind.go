@@ -180,6 +180,10 @@ func rebindPostgres(query string) string {
 			out.WriteByte('?')
 			i += 2
 
+		case query[i] == '?' && isPostgresJSONBOperator(query, i):
+			out.WriteByte('?')
+			i++
+
 		case query[i] == '?':
 			parameter++
 			out.WriteByte('$')
@@ -209,4 +213,48 @@ func postgresDollarDelimiter(s string) string {
 		}
 	}
 	return ""
+}
+
+func isPostgresJSONBOperator(query string, index int) bool {
+	previous := index - 1
+	for previous >= 0 && (query[previous] == ' ' || query[previous] == '\t' || query[previous] == '\n' || query[previous] == '\r') {
+		previous--
+	}
+	if previous < 0 {
+		return false
+	}
+	prev := query[previous]
+	if !((prev >= 'a' && prev <= 'z') || (prev >= 'A' && prev <= 'Z') ||
+		(prev >= '0' && prev <= '9') || prev == '_' || prev == ')' || prev == ']' ||
+		prev == '}' || prev == '"' || prev == '\'') {
+		return false
+	}
+
+	end := previous + 1
+	start := previous
+	for start >= 0 {
+		ch := query[start]
+		if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+			(ch >= '0' && ch <= '9') || ch == '_') {
+			break
+		}
+		start--
+	}
+	if start < end-1 {
+		switch strings.ToUpper(query[start+1 : end]) {
+		case "SELECT", "FROM", "WHERE", "AND", "OR", "IN", "VALUES", "LIMIT", "OFFSET", "SET", "RETURNING", "WHEN", "THEN", "BY":
+			return false
+		}
+	}
+
+	next := index + 1
+	for next < len(query) && (query[next] == ' ' || query[next] == '\t' || query[next] == '\n' || query[next] == '\r') {
+		next++
+	}
+	if next >= len(query) {
+		return false
+	}
+	ch := query[next]
+	return ch == '\'' || ch == '"' || ch == '$' || ch == '(' || ch == '[' || ch == '{' ||
+		(ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_'
 }
