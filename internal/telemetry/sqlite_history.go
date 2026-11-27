@@ -127,7 +127,7 @@ func (h *History) Append(ctx context.Context, samples []Sample) error {
 	}
 }
 
-func (h *SQLiteHistory) Query(ctx context.Context, q Query) ([]Point, error) {
+func (h *History) Query(ctx context.Context, q Query) ([]Point, error) {
 	if q.From.IsZero() || q.To.IsZero() || !q.To.After(q.From) {
 		return nil, ErrInvalidQuery
 	}
@@ -185,7 +185,7 @@ LIMIT ?`, q.NodeID, q.Metric, resolutionMS, q.From.UTC().UnixMilli(), q.To.UTC()
 	return points, rows.Err()
 }
 
-func (h *SQLiteHistory) run() {
+func (h *History) run() {
 	defer close(h.done)
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -275,7 +275,7 @@ func (h *SQLiteHistory) run() {
 	}
 }
 
-func (h *SQLiteHistory) writeBatch(ctx context.Context, samples []Sample) error {
+func (h *History) writeBatch(ctx context.Context, samples []Sample) error {
 	tx, err := h.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -309,7 +309,7 @@ DO UPDATE SET value=excluded.value,min_value=excluded.min_value,
 	return tx.Commit()
 }
 
-func (h *SQLiteHistory) compact(ctx context.Context, now time.Time) error {
+func (h *History) compact(ctx context.Context, now time.Time) error {
 	tx, err := h.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -353,7 +353,7 @@ DO UPDATE SET value=excluded.value,min_value=excluded.min_value,max_value=exclud
 	return tx.Commit()
 }
 
-func (h *SQLiteHistory) prune(ctx context.Context, now time.Time) error {
+func (h *History) prune(ctx context.Context, now time.Time) error {
 	tx, err := h.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -374,7 +374,7 @@ WHERE (resolution_ms=? AND timestamp_ms<?)
 	return tx.Commit()
 }
 
-func (h *SQLiteHistory) HistoryStats() map[string]uint64 {
+func (h *History) HistoryStats() map[string]uint64 {
 	return map[string]uint64{
 		"history_write_errors": h.writeErrors.Load(),
 		"history_dropped_samples": h.droppedSamples.Load(),
@@ -383,7 +383,7 @@ func (h *SQLiteHistory) HistoryStats() map[string]uint64 {
 	}
 }
 
-func (h *SQLiteHistory) Close() error {
+func (h *History) Close() error {
 	h.mu.Lock()
 	if !h.closed {
 		h.closed = true
