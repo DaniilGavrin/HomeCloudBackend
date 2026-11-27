@@ -403,6 +403,15 @@ func TestConfigStartAndDatabaseBytes(t *testing.T) {
 			setupSecret(t)
 			doc := referenceDocument(t)
 			mutateYAML(t, doc, "type_start."+tc.field, tc.value, false)
+			if tc.field == "db_byte" && (tc.value == "0x01" || tc.value == "0x02") {
+				mutateYAML(t, doc, "db_server.database", "homecloud", false)
+				mutateYAML(t, doc, "db_server.username", "homecloud", false)
+				host := "127.0.0.1"
+				if tc.value == "0x02" {
+					host = "db.example.internal"
+				}
+				mutateYAML(t, doc, "db_server.host", "\"" + host + "\"", false)
+			}
 			_, err := LoadAt(writeDocument(t, doc))
 			if tc.accepted && err != nil {
 				t.Fatalf("valid byte was rejected: %v", err)

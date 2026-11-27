@@ -145,6 +145,13 @@ func TestPostgreSQLModesDoNotRequireSQLiteSettings(t *testing.T) {
 			cfg := validConfig(t)
 			cfg.TypeStart.DBByte = &mode
 			cfg.DBServer.FilePath = ""
+			cfg.DBServer.Database = "homecloud"
+			cfg.DBServer.Username = "homecloud"
+			if mode == DBPostgreSQLLocal {
+				cfg.DBServer.Host = "127.0.0.1"
+			} else {
+				cfg.DBServer.Host = "db.example.internal"
+			}
 			cfg.DBServer.SQLite.JournalMode = "not-a-sqlite-mode"
 			cfg.DBServer.SQLite.BusyTimeoutMs = -1
 			cfg.DBServer.SQLite.ForeignKeys = false
@@ -163,5 +170,32 @@ func TestUnknownDatabaseByteRejected(t *testing.T) {
 	cfg.TypeStart.DBByte = &unknown
 	if err := CheckStart(cfg, t.TempDir()); err == nil {
 		t.Fatal("unknown database byte must be rejected")
+	}
+}
+
+func TestPostgreSQLLocalRejectsRemoteHost(t *testing.T) {
+	cfg := validConfig(t)
+	mode := uint8(DBPostgreSQLLocal)
+	cfg.TypeStart.DBByte = &mode
+	cfg.DBServer.Database = "homecloud"
+	cfg.DBServer.Username = "homecloud"
+	cfg.DBServer.Host = "192.168.1.20"
+	if err := CheckStart(cfg, t.TempDir()); err == nil {
+		t.Fatal("PostgreSQL Local must reject a non-loopback host")
+	}
+}
+
+func TestPostgreSQLRemoteRequiresConnectionTarget(t *testing.T) {
+	cfg := validConfig(t)
+	mode := uint8(DBPostgreSQLRemote)
+	cfg.TypeStart.DBByte = &mode
+	cfg.DBServer.Database = "homecloud"
+	cfg.DBServer.Username = "homecloud"
+	if err := CheckStart(cfg, t.TempDir()); err == nil {
+		t.Fatal("PostgreSQL Remote must require a host")
+	}
+	cfg.DBServer.Host = "db.example.internal"
+	if err := CheckStart(cfg, t.TempDir()); err != nil {
+		t.Fatalf("valid remote PostgreSQL settings rejected: %v", err)
 	}
 }

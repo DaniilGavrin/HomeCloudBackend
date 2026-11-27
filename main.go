@@ -41,7 +41,7 @@ func run() error {
 	cfg, err := wsconfig.LoadAt(root)
 	if errors.Is(err, wsconfig.ErrCreated) {
 		fmt.Println("[CONFIG] Создан config/config.yaml — заполните конфигурацию и перезапустите сервер.")
-		fmt.Println("[CONFIG] Обязательно укажите start_byte (0xA1 / 0xA2) и db_byte (0x00 для SQLite).")
+		fmt.Println("[CONFIG] Обязательно укажите start_byte (0xA1 / 0xA2) и db_byte (0x00 SQLite / 0x01 PostgreSQL Local / 0x02 PostgreSQL Remote).")
 		return nil // deliberate normal exit; no WS listener started
 	}
 	if err != nil {
@@ -79,7 +79,7 @@ func run() error {
 	db, err := database.Open(dbCtx, cfg, root)
 	cancel()
 	if err != nil {
-		return fmt.Errorf("подключение SQLite: %w", err)
+		return fmt.Errorf("подключение базы данных: %w", err)
 	}
 	defer db.Close()
 	if command == "init-db" {
@@ -147,7 +147,7 @@ func run() error {
 		if retentionDays <= 0 {
 			retentionDays = 14
 		}
-		history, historyErr := telemetry.NewSQLiteHistoryWithRetention(
+		history, historyErr := telemetry.NewSQLHistoryWithRetention(
 			db, 256, time.Hour, 24*time.Hour, time.Duration(retentionDays)*24*time.Hour,
 		)
 		if historyErr != nil {

@@ -23,6 +23,27 @@ func isLoopback(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+func validPostgreSQLHost(host string) bool {
+	if net.ParseIP(host) != nil {
+		return true
+	}
+	if host == "" || len(host) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, ch := range label {
+			if (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') &&
+				(ch < '0' || ch > '9') && ch != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func privateBindHost(host string) bool {
 	if host == "auto_private" || isLoopback(host) {
 		return true
@@ -45,7 +66,7 @@ func CheckStart(c *Config, root string) error {
 		return errors.New("type_start.start_byte обязателен")
 	}
 	if c.TypeStart.DBByte == nil {
-		return errors.New("type_start.db_byte обязателен, 0x00 означает SQLite")
+		return errors.New("type_start.db_byte обязателен: 0x00 SQLite, 0x01 PostgreSQL Local, 0x02 PostgreSQL Remote")
 	}
 	switch *c.TypeStart.DBByte {
 	case DBSQLite, DBPostgreSQLLocal, DBPostgreSQLRemote:
@@ -142,6 +163,30 @@ func CheckStart(c *Config, root string) error {
 	}
 	if c.DBServer.ConnectionTimeout <= 0 {
 		return errors.New("db_server.connection_timeout должен быть > 0")
+	}
+	switch *c.TypeStart.DBByte {
+	case DBPostgreSQLLocal, DBPostgreSQLRemote:
+		d := c.DBServer
+		if d.Database == "" || d.Username == "" {
+			return errors.New("db_server.database и db_server.username обязательны для PostgreSQL")
+		}
+		if strings.TrimSpace(d.Database) != d.Database || strings.TrimSpace(d.Username) != d.Username ||
+			strings.ContainsAny(d.Database+d.Username+d.Password, "\x00\r\n") {
+			return errors.New("db_server: недопустимые символы в параметрах PostgreSQL")
+		}
+		if d.Port < 0 || d.Port > 65535 {
+			return errors.New("db_server.port: допустимо 0 (порт по умолчанию 5432) или 1..65535")
+		}
+		host := d.Host
+		if *c.TypeStart.DBByte == DBPostgreSQLLocal && host == "" {
+			host = "127.0.0.1"
+		}
+		if host == "" || strings.TrimSpace(host) != host || !validPostgreSQLHost(host) {
+			return errors.New("db_server.host обязателен и должен содержать только hostname или IP")
+		}
+		if *c.TypeStart.DBByte == DBPostgreSQLLocal && !isLoopback(host) {
+			return errors.New("PostgreSQL Local должен слушать только localhost или loopback IP; для удалённого сервера используйте db_byte 0x02")
+		}
 	}
 	if *c.TypeStart.DBByte == DBSQLite {
 		if c.DBServer.FilePath == "" {

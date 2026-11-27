@@ -17,7 +17,7 @@ var schemaV1 = []string{
 	`CREATE TABLE hc_cluster_registry_meta (
         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
         cluster_id TEXT NOT NULL,
-        revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0),
+        revision BIGINT NOT NULL DEFAULT 0 CHECK(revision >= 0),
         updated_at TEXT NOT NULL
     )`,
 	`CREATE TABLE hc_cluster_registry_nodes (
@@ -26,7 +26,7 @@ var schemaV1 = []string{
         home_id TEXT NOT NULL DEFAULT '',
         display_name TEXT NOT NULL,
         membership TEXT NOT NULL CHECK (membership IN ('pending','active','removed')),
-        revision INTEGER NOT NULL CHECK(revision > 0),
+        revision BIGINT NOT NULL CHECK(revision > 0),
         removed INTEGER NOT NULL DEFAULT 0 CHECK(removed IN (0,1)),
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -44,7 +44,7 @@ var schemaV1 = []string{
 	`CREATE TABLE hc_cluster_registry_applied (
         operation_id TEXT PRIMARY KEY,
         command_hash TEXT NOT NULL,
-        revision INTEGER NOT NULL UNIQUE,
+        revision BIGINT NOT NULL UNIQUE,
         applied_at TEXT NOT NULL
     )`,
 }

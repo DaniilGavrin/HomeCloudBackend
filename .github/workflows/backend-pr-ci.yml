@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - feature/database-start-bytes
   workflow_dispatch:
 
 permissions:
@@ -14,6 +15,20 @@ jobs:
     name: "Validate and test Backend"
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: homecloud_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d homecloud_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       CGO_ENABLED: "0"
 
@@ -34,6 +49,8 @@ jobs:
         run: go mod tidy -diff
 
       - name: Unit and integration tests
+        env:
+          HOMECLOUD_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/homecloud_test?sslmode=disable
         run: go test -count=1 ./...
 
       - name: Static analysis

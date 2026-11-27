@@ -230,9 +230,11 @@ func (m *Manager) List(ctx context.Context) ([]Volume, error) {
 	out := make([]Volume, 0)
 	for rows.Next() {
 		var v Volume
-		if err := rows.Scan(&v.ID, &v.Name, &v.Path, &v.Priority, &v.Enabled); err != nil {
+		var enabled int
+		if err := rows.Scan(&v.ID, &v.Name, &v.Path, &v.Priority, &enabled); err != nil {
 			return nil, err
 		}
+		v.Enabled = enabled != 0
 		// A removed mount never silently points at a different path.
 		if _, err := m.safeRoot(v.Path); err == nil {
 			v = volumeOnline(v)
@@ -272,9 +274,11 @@ func (m *Manager) ListFiles(ctx context.Context, storageID string, limit int) ([
 	out := make([]File, 0)
 	for rows.Next() {
 		var f File
-		if err := rows.Scan(&f.ID, &f.StorageID, &f.Name, &f.MIMEType, &f.SizeBytes, &f.SHA256, &f.CreatedAt, &f.UploadedBy, &f.Source, &f.RelativePath, &f.Available); err != nil {
+		var available int
+		if err := rows.Scan(&f.ID, &f.StorageID, &f.Name, &f.MIMEType, &f.SizeBytes, &f.SHA256, &f.CreatedAt, &f.UploadedBy, &f.Source, &f.RelativePath, &available); err != nil {
 			return nil, err
 		}
+		f.Available = available != 0
 		out = append(out, f)
 	}
 	return out, rows.Err()
@@ -291,7 +295,9 @@ func (m *Manager) file(ctx context.Context, id string) (File, error) {
 	if !errors.Is(err, sql.ErrNoRows) {
 		return f, err
 	}
-	err = m.db.QueryRowContext(ctx, `SELECT id,storage_id,name,mime_type,size_bytes,indexed_at,relative_path,available FROM hc_storage_index WHERE id=?`, id).Scan(&f.ID, &f.StorageID, &f.Name, &f.MIMEType, &f.SizeBytes, &f.CreatedAt, &f.RelativePath, &f.Available)
+	var available int
+	err = m.db.QueryRowContext(ctx, `SELECT id,storage_id,name,mime_type,size_bytes,indexed_at,relative_path,available FROM hc_storage_index WHERE id=?`, id).Scan(&f.ID, &f.StorageID, &f.Name, &f.MIMEType, &f.SizeBytes, &f.CreatedAt, &f.RelativePath, &available)
+	f.Available = available != 0
 	if errors.Is(err, sql.ErrNoRows) {
 		return f, ErrNotFound
 	}
@@ -310,7 +316,9 @@ func (m *Manager) GetFile(ctx context.Context, id string) (File, error) {
 }
 func (m *Manager) volume(ctx context.Context, id string) (Volume, error) {
 	var v Volume
-	err := m.db.QueryRowContext(ctx, `SELECT id,name,path,priority,enabled FROM hc_storage_volumes WHERE id=?`, id).Scan(&v.ID, &v.Name, &v.Path, &v.Priority, &v.Enabled)
+	var enabled int
+	err := m.db.QueryRowContext(ctx, `SELECT id,name,path,priority,enabled FROM hc_storage_volumes WHERE id=?`, id).Scan(&v.ID, &v.Name, &v.Path, &v.Priority, &enabled)
+	v.Enabled = enabled != 0
 	if errors.Is(err, sql.ErrNoRows) {
 		return v, ErrNotFound
 	}

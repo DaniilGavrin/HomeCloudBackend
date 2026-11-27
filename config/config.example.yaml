@@ -113,12 +113,12 @@ security:
 # СУБД: один выбранный драйвер; таблицы задаются миграциями
 # ------------------------------------------------------------
 db_server:
-  host: ""                      # Для сетевых СУБД
+  host: "127.0.0.1"            # PostgreSQL Local/Remote
   port: 0
   database: ""
   username: ""
-  password: ""                 # Для сетевых СУБД
-  file_path: "./data/homecloud.db"  # SQLite / DuckDB; только локальный диск
+  password: ""                 # PostgreSQL connection password
+  file_path: "./data/homecloud.db"  # SQLite; только локальный диск
   tls_enabled: false
   connection_timeout: 10        # Секунды
   max_open_connections: 10
