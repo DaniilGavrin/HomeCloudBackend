@@ -79,7 +79,7 @@ func (c *rebindConn) CheckNamedValue(value *driver.NamedValue) error {
 	if checker, ok := c.Conn.(driver.NamedValueChecker); ok {
 		return checker.CheckNamedValue(value)
 	}
-	return nil
+	return driver.ErrSkip
 }
 
 func init() {
