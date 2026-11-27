@@ -109,8 +109,11 @@ func TestPostgreSQLSchemaAndParameterBinding(t *testing.T) {
 	}
 	// Wait until the sample's ten-second bucket is complete so the real
 	// background compactor executes PostgreSQL INSERT .. SELECT .. ON CONFLICT.
+	time.Sleep(1200 * time.Millisecond) // allow the asynchronous writer to persist the raw sample
 	nextBucket := now.Truncate(10 * time.Second).Add(10 * time.Second)
-	time.Sleep(time.Until(nextBucket.Add(1200 * time.Millisecond)))
+	if wait := time.Until(nextBucket.Add(1200 * time.Millisecond)); wait > 0 {
+		time.Sleep(wait)
+	}
 	if err := history.Close(); err != nil {
 		t.Fatalf("close PostgreSQL telemetry history: %v", err)
 	}
