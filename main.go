@@ -41,7 +41,7 @@ func run() error {
 	cfg, err := wsconfig.LoadAt(root)
 	if errors.Is(err, wsconfig.ErrCreated) {
 		fmt.Println("[CONFIG] Создан config/config.yaml — заполните конфигурацию и перезапустите сервер.")
-		fmt.Println("[CONFIG] Обязательно укажите start_byte (0xA1 / 0xA2) и db_byte (0x00 для SQLite).")
+		fmt.Println("[CONFIG] Обязательно укажите start_byte (0xA1 / 0xA2) и db_byte (0x00 SQLite / 0x01 PostgreSQL Local / 0x02 PostgreSQL Remote).")
 		return nil // deliberate normal exit; no WS listener started
 	}
 	if err != nil {
