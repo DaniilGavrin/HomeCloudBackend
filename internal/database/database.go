@@ -184,47 +184,6 @@ func isPostgreSQL(db *sql.DB) bool {
 	_, ok := db.Driver().(*rebindDriver)
 	return ok
 }
-	filename := cfg.DBServer.FilePath
-	if !filepath.IsAbs(filename) {
-		filename = filepath.Join(root, filename)
-	}
-	filename, err := filepath.Abs(filename)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(filepath.Dir(filename), 0700); err != nil {
-		return nil, err
-	}
-	// SQLite path must be local; do not place WAL database on NFS/SMB.
-	db, err := sql.Open("sqlite", filename)
-	if err != nil {
-		return nil, err
-	}
-	// Explicitly one SQLite connection: consistent PRAGMA settings and predictable locking.
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-	db.SetConnMaxLifetime(0) // PRAGMA state is per connection; keep the single SQLite connection.
-	db.SetConnMaxIdleTime(0)
-	pragmas := []string{
-		fmt.Sprintf("PRAGMA busy_timeout=%d", cfg.DBServer.SQLite.BusyTimeoutMs),
-		"PRAGMA journal_mode=" + cfg.DBServer.SQLite.JournalMode,
-	}
-	if cfg.DBServer.SQLite.ForeignKeys {
-		pragmas = append(pragmas, "PRAGMA foreign_keys=ON")
-	}
-	for _, q := range pragmas {
-		if _, err := db.ExecContext(ctx, q); err != nil {
-			db.Close()
-			return nil, fmt.Errorf("%s: %w", q, err)
-		}
-	}
-	if err := db.PingContext(ctx); err != nil {
-		db.Close()
-		return nil, err
-	}
-	return db, nil
-}
-
 func Init(ctx context.Context, db *sql.DB) error {
 	// Statements are deliberately explicit; no automatic schema changes on normal boot.
 	ddl := schema
