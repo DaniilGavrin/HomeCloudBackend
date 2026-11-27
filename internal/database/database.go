@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS hc_storage_files (
  storage_id TEXT NOT NULL REFERENCES hc_storage_volumes(id),
  name TEXT NOT NULL,
  mime_type TEXT NOT NULL,
- size_bytes INTEGER NOT NULL,
+ size_bytes BIGINT NOT NULL,
  sha256 TEXT NOT NULL,
  created_at TEXT NOT NULL,
  uploaded_by TEXT NOT NULL
@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS hc_storage_index (
  relative_path TEXT NOT NULL,
  name TEXT NOT NULL,
  mime_type TEXT NOT NULL,
- size_bytes INTEGER NOT NULL,
+ size_bytes BIGINT NOT NULL,
  modified_at TEXT NOT NULL,
  indexed_at TEXT NOT NULL,
  seen_run TEXT NOT NULL,
@@ -56,9 +56,9 @@ CREATE TABLE IF NOT EXISTS hc_devices (
     device_id TEXT PRIMARY KEY,
     client_type TEXT NOT NULL,
     name TEXT NOT NULL DEFAULT '',
-    first_seen_at INTEGER NOT NULL,
-    last_seen_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+    first_seen_at BIGINT NOT NULL,
+    last_seen_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_hc_devices_last_seen ON hc_devices(last_seen_at);
 CREATE TABLE IF NOT EXISTS audit_events (
