@@ -47,8 +47,11 @@ func CheckStart(c *Config, root string) error {
 	if c.TypeStart.DBByte == nil {
 		return errors.New("type_start.db_byte обязателен, 0x00 означает SQLite")
 	}
-	if *c.TypeStart.DBByte != DBSQLite {
-		return fmt.Errorf("драйвер СУБД 0x%02X пока не реализован: доступен SQLite (0x00)", *c.TypeStart.DBByte)
+	switch *c.TypeStart.DBByte {
+	case DBSQLite, DBPostgreSQLLocal, DBPostgreSQLRemote:
+		// Database connection providers are initialized separately.
+	default:
+		return fmt.Errorf("неизвестный db_byte 0x%02X: допустимо 0x00 (SQLite), 0x01 (PostgreSQL Local), 0x02 (PostgreSQL Remote)", *c.TypeStart.DBByte)
 	}
 	if c.ConfigVersion != 1 {
 		return errors.New("config_version: поддерживается только 1")
@@ -137,14 +140,19 @@ func CheckStart(c *Config, root string) error {
 	if c.MessageBus.SlowConsumerPolicy != "disconnect" {
 		return errors.New("поддерживается только slow_consumer_policy=disconnect")
 	}
-	if c.DBServer.FilePath == "" {
-		return errors.New("db_server.file_path обязателен для SQLite")
+	if c.DBServer.ConnectionTimeout <= 0 {
+		return errors.New("db_server.connection_timeout должен быть > 0")
 	}
-	if c.DBServer.ConnectionTimeout <= 0 || c.DBServer.SQLite.BusyTimeoutMs < 0 {
-		return errors.New("db_server: неверные тайм-ауты")
-	}
-	if c.DBServer.SQLite.JournalMode != "WAL" && c.DBServer.SQLite.JournalMode != "DELETE" {
-		return errors.New("SQLite journal_mode: WAL или DELETE")
+	if *c.TypeStart.DBByte == DBSQLite {
+		if c.DBServer.FilePath == "" {
+			return errors.New("db_server.file_path обязателен для SQLite")
+		}
+		if c.DBServer.SQLite.BusyTimeoutMs < 0 {
+			return errors.New("db_server.sqlite.busy_timeout_ms не может быть отрицательным")
+		}
+		if c.DBServer.SQLite.JournalMode != "WAL" && c.DBServer.SQLite.JournalMode != "DELETE" {
+			return errors.New("SQLite journal_mode: WAL или DELETE")
+		}
 	}
 	if c.Logging.LogSecrets {
 		return errors.New("logging.log_secrets: логирование секретов запрещено по соображениям безопасности")
@@ -226,11 +234,13 @@ func validateStrictSettings(c *Config) error {
 	if d.MaxOpenConnections < 1 || d.MaxIdleConnections < 0 || d.MaxIdleConnections > d.MaxOpenConnections || d.ConnectionMaxLifetimeSeconds < 0 || d.ConnectionMaxIdleSeconds < 0 {
 		return errors.New("db_server: неверные параметры пула соединений")
 	}
-	if d.TLSEnabled {
-		return errors.New("db_server.tls_enabled: не применяется к локальному SQLite")
-	}
-	if !d.SQLite.ForeignKeys {
-		return errors.New("db_server.sqlite.foreign_keys должен быть true")
+	if *c.TypeStart.DBByte == DBSQLite {
+		if d.TLSEnabled {
+			return errors.New("db_server.tls_enabled: не применяется к локальному SQLite")
+		}
+		if !d.SQLite.ForeignKeys {
+			return errors.New("db_server.sqlite.foreign_keys должен быть true")
+		}
 	}
 	if c.Devices.HeartbeatIntervalSeconds <= 0 || c.Devices.OfflineAfterSeconds <= c.Devices.HeartbeatIntervalSeconds {
 		return errors.New("devices: неверные параметры heartbeat/offline")
