@@ -150,7 +150,7 @@ func CheckStart(c *Config, root string) error {
 			return errors.New("db_server.database и db_server.username обязательны для PostgreSQL")
 		}
 		if strings.TrimSpace(d.Database) != d.Database || strings.TrimSpace(d.Username) != d.Username ||
-			strings.ContainsAny(d.Database+d.Username+d.Password, "\x00\\r\\n") {
+			strings.ContainsAny(d.Database+d.Username+d.Password, "\x00\r\n") {
 			return errors.New("db_server: недопустимые символы в параметрах PostgreSQL")
 		}
 		if d.Port < 0 || d.Port > 65535 {
@@ -160,7 +160,7 @@ func CheckStart(c *Config, root string) error {
 		if *c.TypeStart.DBByte == DBPostgreSQLLocal && host == "" {
 			host = "127.0.0.1"
 		}
-		if host == "" || strings.TrimSpace(host) != host || strings.ContainsAny(host, " /\\\\\\t\\r\\n") {
+		if host == "" || strings.TrimSpace(host) != host || strings.ContainsAny(host, " /\\\t\r\n") {
 			return errors.New("db_server.host обязателен и должен содержать только hostname или IP")
 		}
 		if *c.TypeStart.DBByte == DBPostgreSQLLocal && !isLoopback(host) {
