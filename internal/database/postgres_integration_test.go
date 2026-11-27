@@ -107,6 +107,10 @@ func TestPostgreSQLSchemaAndParameterBinding(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("append PostgreSQL telemetry sample: %v", err)
 	}
+	// Wait until the sample's ten-second bucket is complete so the real
+	// background compactor executes PostgreSQL INSERT .. SELECT .. ON CONFLICT.
+	nextBucket := now.Truncate(10 * time.Second).Add(10 * time.Second)
+	time.Sleep(time.Until(nextBucket.Add(1200 * time.Millisecond)))
 	if err := history.Close(); err != nil {
 		t.Fatalf("close PostgreSQL telemetry history: %v", err)
 	}
@@ -117,5 +121,13 @@ func TestPostgreSQLSchemaAndParameterBinding(t *testing.T) {
 	})
 	if err != nil || len(points) != 1 || points[0].Value != 42.5 {
 		t.Fatalf("query PostgreSQL telemetry history: points=%+v err=%v", points, err)
+	}
+	rollups, err := history.Query(ctx, telemetry.Query{
+		NodeID: "hc-integration-node", Metric: "host.cpu.usage",
+		From: now.Add(-10*time.Second), To: now.Add(20*time.Second),
+		Resolution: 10*time.Second, Limit: 10,
+	})
+	if err != nil || len(rollups) != 1 || rollups[0].Value != 42.5 || rollups[0].Count != 1 {
+		t.Fatalf("query PostgreSQL telemetry rollup: points=%+v err=%v", rollups, err)
 	}
 }
