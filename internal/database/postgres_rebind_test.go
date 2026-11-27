@@ -32,6 +32,11 @@ func TestRebindPostgres(t *testing.T) {
 			want: "SELECT data ?| array['a'], data ?& array['b'] FROM items WHERE id=$1",
 		},
 		{
+			name: "postgres json existence operator",
+			input: "SELECT data ? 'key' FROM items WHERE id=?",
+			want: "SELECT data ? 'key' FROM items WHERE id=$1",
+		},
+		{
 			name: "escaped question mark",
 			input: "SELECT ??, ?",
 			want: "SELECT ?, $1",
